@@ -1,3 +1,4 @@
+use std::usize;
 
 use crate::bus;
 use crate::bus::Bus;
@@ -41,7 +42,6 @@ impl Cpu {
         self.bus.store(addr, size, value)
     }
 
-
     pub fn fetch(&mut self) -> Result<u64, Exept> {
         return self.bus.load(self.pc, 32);
     }
@@ -62,11 +62,35 @@ impl Cpu {
                 //add - add rs1 with rs2, store to rd
                 self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]);
             }
+            0x35 => {
+                //lui - ?
+            }
             _ => {
                 return Err(Exept::illegal_instruction(opcode as u64));
             }
         }
         Ok(self.pc + 4)
+    }
+
+    pub fn reg(&self, r: &str) -> u64 {
+        for (i, val) in RVABI.iter().enumerate() {
+            if (*val).eq(r) {
+                return self.regs[i];
+            }
+        }
+
+        match r {
+            "pc" => self.pc,
+            "fp" => self.reg("s0"),
+            r if r.starts_with("x") => {
+                if let Ok(i) = r[1..].parse::<usize>() {
+                    if i <= 31 { return self.regs[i]; }
+                    panic!("Invalid register {}", r);
+                }
+                panic!("Invalid register {}", r);
+            }
+            _ => panic!("Invalid register {}", r),
+        }
     }
 
     pub fn dump_registers(&mut self) {
@@ -76,9 +100,9 @@ impl Cpu {
 
         for i in (0..32).step_by(4) {
             let i0 = format!("x{}", i);
-            let i1 = format!("x{}", i + 1); 
+            let i1 = format!("x{}", i + 1);
             let i2 = format!("x{}", i + 2);
-            let i3 = format!("x{}", i + 3); 
+            let i3 = format!("x{}", i + 3);
             let line = format!(
                 "{:3}({:^4}) = {:<#18x} {:3}({:^4}) = {:<#18x} {:3}({:^4}) = {:<#18x} {:3}({:^4}) = {:<#18x}\n",
                 i0, RVABI[i], self.regs[i], 
@@ -90,7 +114,6 @@ impl Cpu {
         }
         println!("{}", output);
     }
-
 }
 
 // decode type R

@@ -4,7 +4,7 @@ use std::{
     io::{self, Read},
 };
 
-use cpu::Cpu;
+use cpu::cpu::Cpu;
 
 mod bus;
 mod cpu;
