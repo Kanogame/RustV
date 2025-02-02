@@ -59,7 +59,7 @@ impl Cpu {
         match opcode {
             0x13 => {
                 //I addi - add rs1 with immediate, store to rd
-                let imm = ((inst & I_IMMEDIATE) as i64 >> 20) as u64;
+                let imm = (inst & I_IMMEDIATE) >> 20;
                 self.regs[rd] = self.regs[rs1].wrapping_add(imm);
             }
             0x17 => {
@@ -74,11 +74,20 @@ impl Cpu {
                 //U lui - load imm to register, with << 12
                 self.regs[rd] = inst & U_IMMEDIATE;
             }
+            0x63 => {
+                // S beq - add imm12 to pc if rs1 == rs2
+                let imm = (((inst & 0x80000000) as i32 as i64 >> 19) as u64)
+                    | ((inst & 0x80) << 4)
+                    | ((inst >> 20) & 0x7e0)
+                    | ((inst >> 7) & 0x1e); 
+                if self.regs[rs1] == self.regs[rs2] {
+                    return Ok(self.pc.wrapping_add(imm));
+                }
+            }
             0x67 => {
                 //I jalr - jumps to rs1 + imm12
                 self.regs[rd] = self.pc + 4;
-                println!("HIHI{}", self.regs[rs1] + (inst >> 20));
-                return Ok(self.regs[rs1] + (inst >> 20) + DRAM_BASE);
+                return Ok(self.regs[rs1].wrapping_add((inst >> 20) + DRAM_BASE));
             }
             0x6f => {
                 //J jal - jumps to pc + imm20 << 1
@@ -88,13 +97,13 @@ impl Cpu {
                 | ((inst >> 9) & 0x800) 
                 | (inst >> 20) & 0x7fe;
                 self.regs[rd] = self.pc + 4;
-                return Ok(self.pc + imm);
+                return Ok(self.pc.wrapping_add(imm));
             }
             _ => {
                 return Err(Exept::illegal_instruction(opcode as u64));
             }
         }
-        Ok(self.pc + 4)
+        Ok(self.pc.wrapping_add(4))
     }
 
     pub fn reg(&self, r: &str) -> u64 {

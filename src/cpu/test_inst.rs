@@ -66,3 +66,18 @@ addi x21, x21, 1
 addi x21, x21, 1";
     riscv_test!(code, "test_jalr", 6, "x21" => 8);
 }
+
+#[test]
+fn test_beq() {
+    let code = "addi x20, x20, 8
+addi x21, x21, 8
+beq x20, x21, -4 
+addi x31, x0, 1
+";
+    riscv_test!(code, "test_beq", 6, "x21" => 16, "x31" => 1);
+}
+
+//addi x20, x20, 8
+//addi x21, x21, 1
+//bne x20, x21, -4
+//addi x31, x0, 1
