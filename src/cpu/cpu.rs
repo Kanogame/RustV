@@ -5,6 +5,9 @@ use crate::bus::Bus;
 use crate::exept::Exept;
 use crate::param::{DRAM_BASE, DRAM_END};
 
+const I_IMMEDIATE: u64 = 0xfff0_0000;
+const U_IMMEDIATE: u64 = 0xffff_f000;
+
 // fancy names for registers
 const RVABI: [&str; 32] = [
     "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",
@@ -51,19 +54,41 @@ impl Cpu {
 
         // by spec x0 is ALWAYS zero
         self.regs[0] = 0;
-
+        let base_pc = self.pc - DRAM_BASE;
+        
         match opcode {
             0x13 => {
-                //addi - add rs1 with immediate, store to rd
-                let imm = ((inst & 0xfff0_0000) as i64 >> 20) as u64;
+                //I addi - add rs1 with immediate, store to rd
+                let imm = ((inst & I_IMMEDIATE) as i64 >> 20) as u64;
                 self.regs[rd] = self.regs[rs1].wrapping_add(imm);
             }
+            0x17 => {
+                //U auipc - add imm(with << 12) to pc and store to rd
+                self.regs[rd] = base_pc.wrapping_add(inst & U_IMMEDIATE);
+            }
             0x33 => {
-                //add - add rs1 with rs2, store to rd
+                //R add - add rs1 with rs2, store to rd
                 self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]);
             }
-            0x35 => {
-                //lui - ?
+            0x37 => {
+                //U lui - load imm to register, with << 12
+                self.regs[rd] = inst & U_IMMEDIATE;
+            }
+            0x67 => {
+                //I jalr - jumps to rs1 + imm12
+                self.regs[rd] = self.pc + 4;
+                println!("HIHI{}", self.regs[rs1] + (inst >> 20));
+                return Ok(self.regs[rs1] + (inst >> 20) + DRAM_BASE);
+            }
+            0x6f => {
+                //J jal - jumps to pc + imm20 << 1
+                // imm reordering, check wiki for J order
+                let imm = ((inst & 0x8000_0000) >> 11) 
+                | (inst & 0xff000) 
+                | ((inst >> 9) & 0x800) 
+                | (inst >> 20) & 0x7fe;
+                self.regs[rd] = self.pc + 4;
+                return Ok(self.pc + imm);
             }
             _ => {
                 return Err(Exept::illegal_instruction(opcode as u64));
@@ -79,6 +104,8 @@ impl Cpu {
             }
         }
 
+        self.dump_registers();
+
         match r {
             "pc" => self.pc,
             "fp" => self.reg("s0"),
@@ -93,10 +120,10 @@ impl Cpu {
         }
     }
 
-    pub fn dump_registers(&mut self) {
+    pub fn dump_registers(&self) {
         println!("{:-^80}", "registers");
         let mut output = String::new();
-        self.regs[0] = 0;
+        //self.regs[0] = 0;
 
         for i in (0..32).step_by(4) {
             let i0 = format!("x{}", i);
