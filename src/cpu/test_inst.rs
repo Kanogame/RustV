@@ -15,9 +15,15 @@ macro_rules! riscv_test {
         }
 
 #[test]
-fn test_addi() {
+fn test_addi_1() {
     let code = "addi x1, x0, 42";
-    riscv_test!(code, "test_addi", 1, "x1" => 42);
+    riscv_test!(code, "test_addi_1", 1, "x1" => 42);
+}
+
+#[test]
+fn test_addi_2() {
+    let code = "addi x1, x0, -42";
+    riscv_test!(code, "test_addi_2", 1, "x1" => (-42_i64 as u64));
 }
 
 #[test]
@@ -77,7 +83,32 @@ addi x31, x0, 1
     riscv_test!(code, "test_beq", 6, "x21" => 16, "x31" => 1);
 }
 
-//addi x20, x20, 8
-//addi x21, x21, 1
-//bne x20, x21, -4
-//addi x31, x0, 1
+#[test]
+fn test_bne() {
+    let code = "addi x20, x20, 8
+addi x21, x21, 1
+bne x20, x21, -4
+addi x31, x0, 1
+";
+    riscv_test!(code, "test_bne", 20, "x21" => 8, "x31" => 1);
+}
+
+#[test]
+fn test_blt() {
+    let code = "addi x20, x20, 8
+addi x21, x21, 1
+blt x21, x20, -4 
+addi x31, x0, 1
+";
+    riscv_test!(code, "test_blt", 20, "x21" => 8, "x31" => 1);
+}
+
+#[test]
+fn test_bge() {
+    let code = "addi x20, x20, 8
+addi x21, x21, 1
+bge x20, x21, -4 
+addi x31, x0, 1
+";
+    riscv_test!(code, "test_bge", 20, "x21" => 9, "x31" => 1);
+}

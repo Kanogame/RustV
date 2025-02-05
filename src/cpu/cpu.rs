@@ -56,11 +56,40 @@ impl Cpu {
         self.regs[0] = 0;
         let base_pc = self.pc - DRAM_BASE;
         
+        // all convertions are nessesary to preserve sign
+        // i8 -> i64 (will sign-extend) -> u64 (just bytes)
+        // i8 -> u64 (will zero-extend)
         match opcode {
+            0x3 => {
+                //I load value from memory to rd
+                let addr = self.regs[rs1].wrapping_add(get_i_imm(inst));
+                match funct3 {
+                    0x0 => {
+                        // lb
+                        self.regs[rd] = self.load(addr, 8)? as i8 as i64 as u64;
+                    }
+                    0x1 => {
+                        // lh
+                        self.regs[rd] = self.load(addr, 16)? as i8 as i64 as u64;
+                    }
+                    0x2 => {
+                        // lw
+                        self.regs[rd] = self.load(addr, 32)? as i8 as i64 as u64;
+                    }
+                    0x4 => {
+                         // lbu
+                         self.regs[rd] = self.load(addr, 8)? as u64;
+                    }
+                    0x5 => {
+                          // lhu
+                          self.regs[rd] = self.load(addr, 16)? as u64;
+                    }
+                    _ => {}
+                }
+            }
             0x13 => {
                 //I addi - add rs1 with immediate, store to rd
-                let imm = (inst & I_IMMEDIATE) >> 20;
-                self.regs[rd] = self.regs[rs1].wrapping_add(imm);
+                self.regs[rd] = self.regs[rs1].wrapping_add(get_i_imm(inst));
             }
             0x17 => {
                 //U auipc - add imm(with << 12) to pc and store to rd
@@ -75,29 +104,53 @@ impl Cpu {
                 self.regs[rd] = inst & U_IMMEDIATE;
             }
             0x63 => {
-                // S beq - add imm12 to pc if rs1 == rs2
-                let imm = (((inst & 0x80000000) as i32 as i64 >> 19) as u64)
-                    | ((inst & 0x80) << 4)
-                    | ((inst >> 20) & 0x7e0)
-                    | ((inst >> 7) & 0x1e); 
-                if self.regs[rs1] == self.regs[rs2] {
-                    return Ok(self.pc.wrapping_add(imm));
+                // S - add imm12 to pc if
+                let imm = get_s_imm(inst);
+                match funct3 {
+                    0x0 => 
+                    // beq
+                    if self.regs[rs1] == self.regs[rs2] {
+                        return Ok(self.pc.wrapping_add(imm));
+                    }
+                    0x1 =>
+                    // bne
+                    if self.regs[rs1] != self.regs[rs2] {
+                        return Ok(self.pc.wrapping_add(imm));
+                    }
+                    0x4 =>
+                    // blt
+                    if (self.regs[rs1] as i64) < self.regs[rs2] as i64 {
+                        return Ok(self.pc.wrapping_add(imm));
+                    }
+                    0x5 => 
+                    // bge
+                    if (self.regs[rs1] as i64) >= self.regs[rs2] as i64 {
+                        return Ok(self.pc.wrapping_add(imm));
+                    }
+                    0x6 => 
+                    // bltu
+                    if self.regs[rs1] < self.regs[rs2] {
+                        return Ok(self.pc.wrapping_add(imm));
+                    }
+                    0x7 => 
+                    // bgeu
+                    if self.regs[rs1] >= self.regs[rs2] {
+                        return Ok(self.pc.wrapping_add(imm));
+                    }
+                    _ => {}
                 }
+                
             }
             0x67 => {
                 //I jalr - jumps to rs1 + imm12
                 self.regs[rd] = self.pc + 4;
-                return Ok(self.regs[rs1].wrapping_add((inst >> 20) + DRAM_BASE));
+                return Ok(self.regs[rs1].wrapping_add(get_i_imm(inst) + DRAM_BASE));
             }
             0x6f => {
                 //J jal - jumps to pc + imm20 << 1
                 // imm reordering, check wiki for J order
-                let imm = ((inst & 0x8000_0000) >> 11) 
-                | (inst & 0xff000) 
-                | ((inst >> 9) & 0x800) 
-                | (inst >> 20) & 0x7fe;
                 self.regs[rd] = self.pc + 4;
-                return Ok(self.pc.wrapping_add(imm));
+                return Ok(self.pc.wrapping_add(get_j_imm(inst)));
             }
             _ => {
                 return Err(Exept::illegal_instruction(opcode as u64));
@@ -162,4 +215,22 @@ fn decode_r(inst: u32) -> (u32, usize, usize, u32, usize, u32) {
         ((inst >> 7) & 0x1f) as usize,
         inst & 0x7f,
     );
+}
+
+fn get_i_imm(inst: u64) -> u64 {
+    return ((inst as i32 as i64) >> 20) as u64;
+}
+
+fn get_j_imm(inst: u64) -> u64 {
+    return ((inst & 0x8000_0000) as i32 as i64 >> 11) as u64
+    | (inst & 0xff000) 
+    | ((inst >> 9) & 0x800) 
+    | (inst >> 20) & 0x7fe;
+}
+
+fn get_s_imm(inst: u64) -> u64 {
+    return (((inst & 0x80000000) as i32 as i64 >> 19) as u64)
+    | ((inst & 0x80) << 4)
+    | ((inst >> 20) & 0x7e0)
+    | ((inst >> 7) & 0x1e); 
 }
