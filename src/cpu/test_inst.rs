@@ -112,3 +112,13 @@ addi x31, x0, 1
 ";
     riscv_test!(code, "test_bge", 20, "x21" => 9, "x31" => 1);
 }
+
+#[test]
+fn test_slb() {
+    let code = "addi x21, x0, 2
+addi x20, x0, 82
+sb x20, 0(x21)
+lb x22, 0(x21)
+";
+    riscv_test!(code, "test_slb", 4, "x20" => 82, "x22" => 82);
+}

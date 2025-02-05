@@ -39,7 +39,7 @@ impl Dram {
     }
 
     fn store_little_endian(&mut self, index: usize, bytes: usize, value: u64) {
-        for i in 1..bytes {
+        for i in 0..bytes {
             self.dram[index + i] = (value >> i * 8) as u8;
         }
     }

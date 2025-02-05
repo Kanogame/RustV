@@ -37,12 +37,12 @@ impl Cpu {
 
     // Load value from dram
     pub fn load(&self, addr: u64, size: u64) -> Result<u64, Exept> {
-        self.bus.load(addr, size)
+        self.bus.load(addr +DRAM_BASE, size)
     }
 
     // Store value to dram
     pub fn store(&mut self, addr: u64, size: u64, value: u64) -> Result<(), Exept> {
-        self.bus.store(addr, size, value)
+        self.bus.store(addr +DRAM_BASE, size, value)
     }
 
     pub fn fetch(&mut self) -> Result<u64, Exept> {
@@ -95,6 +95,25 @@ impl Cpu {
                 //U auipc - add imm(with << 12) to pc and store to rd
                 self.regs[rd] = base_pc.wrapping_add(inst & U_IMMEDIATE);
             }
+            0x23 => {
+                // S store value to memory
+                let addr = self.regs[rs1].wrapping_add(get_s_imm(inst));
+                match funct3 {
+                    0x0 => {
+                        // sb
+                        self.store(addr, 8, self.regs[rs2])?; 
+                    }
+                    0x1 => {
+                        // sh
+                        self.store(addr, 16, self.regs[rs2])?; 
+                    }
+                    0x2 => {
+                        // sw
+                        self.store(addr, 32, self.regs[rs2])?; 
+                    }
+                    _ => {}
+                }
+            }
             0x33 => {
                 //R add - add rs1 with rs2, store to rd
                 self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]);
@@ -105,7 +124,7 @@ impl Cpu {
             }
             0x63 => {
                 // S - add imm12 to pc if
-                let imm = get_s_imm(inst);
+                let imm = get_b_imm(inst);
                 match funct3 {
                     0x0 => 
                     // beq
@@ -228,9 +247,14 @@ fn get_j_imm(inst: u64) -> u64 {
     | (inst >> 20) & 0x7fe;
 }
 
-fn get_s_imm(inst: u64) -> u64 {
+fn get_b_imm(inst: u64) -> u64 {
     return (((inst & 0x80000000) as i32 as i64 >> 19) as u64)
     | ((inst & 0x80) << 4)
     | ((inst >> 20) & 0x7e0)
     | ((inst >> 7) & 0x1e); 
+}
+
+fn get_s_imm(inst: u64) -> u64 {
+    return (((inst & 0xfe000000) as i32 as i64 >> 20) as u64) 
+    | ((inst >> 7) & 0x1f);
 }
