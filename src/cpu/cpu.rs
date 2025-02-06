@@ -37,12 +37,12 @@ impl Cpu {
 
     // Load value from dram
     pub fn load(&self, addr: u64, size: u64) -> Result<u64, Exept> {
-        self.bus.load(addr +DRAM_BASE, size)
+        self.bus.load(addr + DRAM_BASE, size)
     }
 
     // Store value to dram
     pub fn store(&mut self, addr: u64, size: u64, value: u64) -> Result<(), Exept> {
-        self.bus.store(addr +DRAM_BASE, size, value)
+        self.bus.store(addr + DRAM_BASE, size, value)
     }
 
     pub fn fetch(&mut self) -> Result<u64, Exept> {
@@ -55,7 +55,7 @@ impl Cpu {
         // by spec x0 is ALWAYS zero
         self.regs[0] = 0;
         let base_pc = self.pc - DRAM_BASE;
-        
+
         // all convertions are nessesary to preserve sign
         // i8 -> i64 (will sign-extend) -> u64 (just bytes)
         // i8 -> u64 (will zero-extend)
@@ -77,54 +77,78 @@ impl Cpu {
                         self.regs[rd] = self.load(addr, 32)? as i8 as i64 as u64;
                     }
                     0x4 => {
-                         // lbu
-                         self.regs[rd] = self.load(addr, 8)? as u64;
+                        // lbu
+                        self.regs[rd] = self.load(addr, 8)? as u64;
                     }
                     0x5 => {
-                          // lhu
-                          self.regs[rd] = self.load(addr, 16)? as u64;
+                        // lhu
+                        self.regs[rd] = self.load(addr, 16)? as u64;
                     }
                     _ => {}
                 }
             }
             0x13 => {
                 // I
+                let imm = get_i_imm(inst);
                 match funct3 {
                     0x0 => {
                         //I addi - add rs1 with immediate, store to rd
-                        self.regs[rd] = self.regs[rs1].wrapping_add(get_i_imm(inst));
+                        self.regs[rd] = self.regs[rs1].wrapping_add(imm);
+                    }
+                    0x1 => {
+                        match funct7 {
+                            0x0 => {
+                                //S (without rs2) slli - rd = rs1 << rs2
+                                let shamt = (imm & 0x1f) as u32;
+                                self.regs[rd] = (self.regs[rs1] << shamt) as i32 as i64 as u64;
+                            }
+                            _ => {}
+                        }
                     }
                     0x2 => {
                         //I slti - 1 to rd if signed rs1 < signed imm, else 0
-                        if (self.regs[rs1] as i64) < (get_i_imm(inst) as i64) {
+                        if (self.regs[rs1] as i64) < (imm as i64) {
                             self.regs[rd] = 1
-                        }
-                        else {
+                        } else {
                             self.regs[rd] = 0
                         }
                     }
                     0x3 => {
                         //I sltiu - 1 to rd if usigned rs1 < usigned imm, else 0
-                        if self.regs[rs1] < get_i_imm(inst) {
+                        if self.regs[rs1] < imm {
                             self.regs[rd] = 1
-                        }
-                        else {
+                        } else {
                             self.regs[rd] = 0
                         }
                     }
                     0x4 => {
                         //I xori - bitwise XOR on rs1 and signed imm
-                        self.regs[rd] = self.regs[rs1] ^ get_i_imm(inst);
+                        self.regs[rd] = self.regs[rs1] ^ imm;
+                    }
+                    0x5 => {
+                        match funct7 {
+                            0x0 => {
+                                //S (without rs2) srli - rd = rs1 >> rs2
+                                let shamt = (imm & 0x1f) as u32;
+                                self.regs[rd] = self.regs[rs1] >> shamt;
+                            }
+                            0x20 => {
+                                //S (without rs2) srai - rd = rs1 >> rs2 (arithmetic)
+                                let shamt = (imm & 0x1f) as u32;
+                                self.regs[rd] = ((self.regs[rs1] as i64) >> shamt) as u64;
+                            }
+                            _ => {}
+                        }
                     }
                     0x6 => {
                         //I ori - bitwise OR on rs1 and signed imm
-                        self.regs[rd] = self.regs[rs1] | get_i_imm(inst);
+                        self.regs[rd] = self.regs[rs1] | imm;
                     }
                     0x7 => {
                         //I andi - bitwise ANDI on rs1 and signed imm
-                        self.regs[rd] = self.regs[rs1] & get_i_imm(inst);
+                        self.regs[rd] = self.regs[rs1] & imm;
                     }
-                    
+
                     _ => {}
                 }
             }
@@ -138,22 +162,41 @@ impl Cpu {
                 match funct3 {
                     0x0 => {
                         // sb
-                        self.store(addr, 8, self.regs[rs2])?; 
+                        self.store(addr, 8, self.regs[rs2])?;
                     }
                     0x1 => {
                         // sh
-                        self.store(addr, 16, self.regs[rs2])?; 
+                        self.store(addr, 16, self.regs[rs2])?;
                     }
                     0x2 => {
                         // sw
-                        self.store(addr, 32, self.regs[rs2])?; 
+                        self.store(addr, 32, self.regs[rs2])?;
                     }
                     _ => {}
                 }
             }
             0x33 => {
-                //R add - add rs1 with rs2, store to rd
-                self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]);
+                match funct3 {
+                    0x0 => {
+                        match funct7 {
+                            0x0 => {
+                                //R add - add rs1 with rs2, store to rd
+                                self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]);
+                            }
+                            0x20 => {
+                                //R sub - sub rs1 with rs2, store to rd
+                                self.regs[rd] = self.regs[rs1].wrapping_sub(self.regs[rs2]);
+                            }
+                            _ => {}
+                        }
+                    }
+                    0x1 => {
+                        //R sll - rd = rs1 << rs2
+                        let shamt = (self.regs[rs2] & 0x3f) as u32;
+                        self.regs[rd] = ((self.regs[rs1] as i64) << shamt) as u64;
+                    }
+                    _ => {}
+                }
             }
             0x37 => {
                 //U lui - load imm to register, with << 12
@@ -163,39 +206,50 @@ impl Cpu {
                 // S - add imm12 to pc if
                 let imm = get_b_imm(inst);
                 match funct3 {
-                    0x0 => 
+                    0x0 =>
                     // beq
-                    if self.regs[rs1] == self.regs[rs2] {
-                        return Ok(self.pc.wrapping_add(imm));
+                    {
+                        if self.regs[rs1] == self.regs[rs2] {
+                            return Ok(self.pc.wrapping_add(imm));
+                        }
                     }
                     0x1 =>
                     // bne
-                    if self.regs[rs1] != self.regs[rs2] {
-                        return Ok(self.pc.wrapping_add(imm));
+                    {
+                        if self.regs[rs1] != self.regs[rs2] {
+                            return Ok(self.pc.wrapping_add(imm));
+                        }
                     }
                     0x4 =>
                     // blt
-                    if (self.regs[rs1] as i64) < self.regs[rs2] as i64 {
-                        return Ok(self.pc.wrapping_add(imm));
+                    {
+                        if (self.regs[rs1] as i64) < self.regs[rs2] as i64 {
+                            return Ok(self.pc.wrapping_add(imm));
+                        }
                     }
-                    0x5 => 
+                    0x5 =>
                     // bge
-                    if (self.regs[rs1] as i64) >= self.regs[rs2] as i64 {
-                        return Ok(self.pc.wrapping_add(imm));
+                    {
+                        if (self.regs[rs1] as i64) >= self.regs[rs2] as i64 {
+                            return Ok(self.pc.wrapping_add(imm));
+                        }
                     }
-                    0x6 => 
+                    0x6 =>
                     // bltu
-                    if self.regs[rs1] < self.regs[rs2] {
-                        return Ok(self.pc.wrapping_add(imm));
+                    {
+                        if self.regs[rs1] < self.regs[rs2] {
+                            return Ok(self.pc.wrapping_add(imm));
+                        }
                     }
-                    0x7 => 
+                    0x7 =>
                     // bgeu
-                    if self.regs[rs1] >= self.regs[rs2] {
-                        return Ok(self.pc.wrapping_add(imm));
+                    {
+                        if self.regs[rs1] >= self.regs[rs2] {
+                            return Ok(self.pc.wrapping_add(imm));
+                        }
                     }
                     _ => {}
                 }
-                
             }
             0x67 => {
                 //I jalr - jumps to rs1 + imm12
@@ -229,7 +283,9 @@ impl Cpu {
             "fp" => self.reg("s0"),
             r if r.starts_with("x") => {
                 if let Ok(i) = r[1..].parse::<usize>() {
-                    if i <= 31 { return self.regs[i]; }
+                    if i <= 31 {
+                        return self.regs[i];
+                    }
                     panic!("Invalid register {}", r);
                 }
                 panic!("Invalid register {}", r);
@@ -279,19 +335,18 @@ fn get_i_imm(inst: u64) -> u64 {
 
 fn get_j_imm(inst: u64) -> u64 {
     return ((inst & 0x8000_0000) as i32 as i64 >> 11) as u64
-    | (inst & 0xff000) 
-    | ((inst >> 9) & 0x800) 
-    | (inst >> 20) & 0x7fe;
+        | (inst & 0xff000)
+        | ((inst >> 9) & 0x800)
+        | (inst >> 20) & 0x7fe;
 }
 
 fn get_b_imm(inst: u64) -> u64 {
     return (((inst & 0x80000000) as i32 as i64 >> 19) as u64)
-    | ((inst & 0x80) << 4)
-    | ((inst >> 20) & 0x7e0)
-    | ((inst >> 7) & 0x1e); 
+        | ((inst & 0x80) << 4)
+        | ((inst >> 20) & 0x7e0)
+        | ((inst >> 7) & 0x1e);
 }
 
 fn get_s_imm(inst: u64) -> u64 {
-    return (((inst & 0xfe000000) as i32 as i64 >> 20) as u64) 
-    | ((inst >> 7) & 0x1f);
+    return (((inst & 0xfe000000) as i32 as i64 >> 20) as u64) | ((inst >> 7) & 0x1f);
 }

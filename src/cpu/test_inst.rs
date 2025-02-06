@@ -186,3 +186,45 @@ ori x22, x20, 0x273
 ";
     riscv_test!(code, "test_andi_ori", 3, "x21" => 2, "x22" => 0x6f3);
 }
+
+#[test]
+fn test_slli() {
+    let code = "addi x20, x20, 10
+slli x21, x20, 2
+";
+    riscv_test!(code, "test_slli", 3, "x21" => 40);
+}
+
+#[test]
+fn test_sub() {
+    let code = "addi x1, x0, 10
+addi x2, x0, 3 
+sub x3, x1, x2  
+";
+    riscv_test!(code, "test_sub", 3, "x3" => 7);
+}
+
+#[test]
+fn test_sll() {
+    let code = "addi x20, x20, 3
+addi x21, x21, 1
+sll x22, x20, x21
+";
+    riscv_test!(code, "test_sll", 3, "x22" => 6);
+}
+
+#[test]
+fn test_srai() {
+    let code = "addi x1, x0, -4 
+srai x3, x1, 1
+";
+    riscv_test!(code, "test_srai", 2, "x3" => (-2) as i64 as u64);
+}
+
+#[test]
+fn test_srli() {
+    let code = "addi x1, x0, 4 
+srli x3, x1, 1
+";
+    riscv_test!(code, "test_srli", 3, "x3" => 2);
+}
