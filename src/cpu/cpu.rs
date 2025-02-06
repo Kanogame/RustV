@@ -88,8 +88,45 @@ impl Cpu {
                 }
             }
             0x13 => {
-                //I addi - add rs1 with immediate, store to rd
-                self.regs[rd] = self.regs[rs1].wrapping_add(get_i_imm(inst));
+                // I
+                match funct3 {
+                    0x0 => {
+                        //I addi - add rs1 with immediate, store to rd
+                        self.regs[rd] = self.regs[rs1].wrapping_add(get_i_imm(inst));
+                    }
+                    0x2 => {
+                        //I slti - 1 to rd if signed rs1 < signed imm, else 0
+                        if (self.regs[rs1] as i64) < (get_i_imm(inst) as i64) {
+                            self.regs[rd] = 1
+                        }
+                        else {
+                            self.regs[rd] = 0
+                        }
+                    }
+                    0x3 => {
+                        //I sltiu - 1 to rd if usigned rs1 < usigned imm, else 0
+                        if self.regs[rs1] < get_i_imm(inst) {
+                            self.regs[rd] = 1
+                        }
+                        else {
+                            self.regs[rd] = 0
+                        }
+                    }
+                    0x4 => {
+                        //I xori - bitwise XOR on rs1 and signed imm
+                        self.regs[rd] = self.regs[rs1] ^ get_i_imm(inst);
+                    }
+                    0x6 => {
+                        //I ori - bitwise OR on rs1 and signed imm
+                        self.regs[rd] = self.regs[rs1] | get_i_imm(inst);
+                    }
+                    0x7 => {
+                        //I andi - bitwise ANDI on rs1 and signed imm
+                        self.regs[rd] = self.regs[rs1] & get_i_imm(inst);
+                    }
+                    
+                    _ => {}
+                }
             }
             0x17 => {
                 //U auipc - add imm(with << 12) to pc and store to rd

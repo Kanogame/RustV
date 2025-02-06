@@ -122,3 +122,67 @@ lb x22, 0(x21)
 ";
     riscv_test!(code, "test_slb", 4, "x20" => 82, "x22" => 82);
 }
+
+#[test]
+fn test_swlbu() {
+    let code = "addi x21, x0, 0
+addi x20, x0, 247
+sw x20, 0(x21)
+lbu x22, 0(x21)
+";
+    riscv_test!(code, "test_swlbu", 4, "x20" => 247, "x22" => 247);
+}
+
+#[test]
+fn test_max_32() {
+    let code = "
+lui x20, 0x80000
+addi x20, x20, -1
+";
+    riscv_test!(code, "test_max_32", 2, "x20" => 0x7fff_ffff);
+}
+
+#[test]
+fn test_li() {
+    let code = "
+li x20, 0x12345678
+";
+    riscv_test!(code, "test_li", 4, "x20" => 0x1234_5678);
+}
+
+#[test]
+fn test_slti() {
+    let code = "addi x20, x20, -12
+slti x21, x20, 10
+addi x22, x22, -30
+slti x23, x22, -200
+";
+    riscv_test!(code, "test_slti", 4, "x21" => 1, "x23" => 0);
+}
+
+#[test]
+fn test_sltiu() {
+    let code = "addi x20, x20, -12
+sltiu x21, x20, 10
+addi x22, x22, -30
+sltiu x23, x22, -200
+";
+    riscv_test!(code, "test_sltiu", 4, "x21" => 0, "x23" => 0);
+}
+
+#[test]
+fn test_xori() {
+    let code = "addi x20, x20, 0x482
+xori x21, x20, 0x273
+";
+    riscv_test!(code, "test_xori", 2, "x21" => 0x6f1);
+}
+
+#[test]
+fn test_andi_ori() {
+    let code = "addi x20, x20, 0x482
+andi x21, x20, 0x273
+ori x22, x20, 0x273
+";
+    riscv_test!(code, "test_andi_ori", 3, "x21" => 2, "x22" => 0x6f3);
+}
