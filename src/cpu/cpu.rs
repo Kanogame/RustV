@@ -76,13 +76,21 @@ impl Cpu {
                         // lw
                         self.regs[rd] = self.load(addr, 32)? as i8 as i64 as u64;
                     }
+                    0x3 => {
+                        // ld
+                        self.regs[rd] = self.load(addr, 64)?;
+                    }
                     0x4 => {
                         // lbu
-                        self.regs[rd] = self.load(addr, 8)? as u64;
+                        self.regs[rd] = self.load(addr, 8)?;
                     }
                     0x5 => {
                         // lhu
-                        self.regs[rd] = self.load(addr, 16)? as u64;
+                        self.regs[rd] = self.load(addr, 16)?;
+                    }
+                    0x6 => {
+                        // lwu
+                        self.regs[rd] = self.load(addr, 32)?;
                     }
                     _ => {}
                 }
@@ -90,20 +98,15 @@ impl Cpu {
             0x13 => {
                 // I
                 let imm = get_i_imm(inst);
+                let shamt = (imm & 0x1f) as u32;
                 match funct3 {
                     0x0 => {
                         //I addi - add rs1 with immediate, store to rd
                         self.regs[rd] = self.regs[rs1].wrapping_add(imm);
                     }
                     0x1 => {
-                        match funct7 {
-                            0x0 => {
-                                //S (without rs2) slli - rd = rs1 << rs2
-                                let shamt = (imm & 0x1f) as u32;
-                                self.regs[rd] = (self.regs[rs1] << shamt) as i32 as i64 as u64;
-                            }
-                            _ => {}
-                        }
+                        //S (without rs2) slli - rd = rs1 << rs2
+                        self.regs[rd] = (self.regs[rs1].wrapping_shl(shamt)) as i32 as i64 as u64;
                     }
                     0x2 => {
                         //I slti - 1 to rd if signed rs1 < signed imm, else 0
@@ -129,13 +132,12 @@ impl Cpu {
                         match funct7 {
                             0x0 => {
                                 //S (without rs2) srli - rd = rs1 >> rs2
-                                let shamt = (imm & 0x1f) as u32;
-                                self.regs[rd] = self.regs[rs1] >> shamt;
+                                self.regs[rd] = self.regs[rs1].wrapping_shr(shamt);
                             }
                             0x20 => {
                                 //S (without rs2) srai - rd = rs1 >> rs2 (arithmetic)
-                                let shamt = (imm & 0x1f) as u32;
-                                self.regs[rd] = ((self.regs[rs1] as i64) >> shamt) as u64;
+                                self.regs[rd] =
+                                    ((self.regs[rs1] as i64).wrapping_shr(shamt)) as u64;
                             }
                             _ => {}
                         }
@@ -156,6 +158,38 @@ impl Cpu {
                 //U auipc - add imm(with << 12) to pc and store to rd
                 self.regs[rd] = base_pc.wrapping_add(inst & U_IMMEDIATE);
             }
+            0x1a => {
+                // I
+                let imm = get_i_imm(inst);
+                let shamt = (imm & 0x1f) as u32;
+                match funct3 {
+                    0x0 => {
+                        //I addiw - add rs1 with immediate, store to rd
+                        self.regs[rd] = self.regs[rs1].wrapping_add(imm) as i32 as i64 as u64;
+                    }
+                    0x1 => {
+                        //S (without rs2) slliw - rd = rs1 << rs2
+                        self.regs[rd] = (self.regs[rs1].wrapping_shl(shamt)) as i32 as i64 as u64;
+                    }
+                    0x5 => {
+                        match funct7 {
+                            0x0 => {
+                                //S (without rs2) srliw - rd = rs1 >> rs2
+                                self.regs[rd] =
+                                    (self.regs[rs1].wrapping_shr(shamt)) as i32 as i64 as u64;
+                            }
+                            0x20 => {
+                                //S (without rs2) sraiw - rd = rs1 >> rs2 (arithmetic)
+                                self.regs[rd] =
+                                    ((self.regs[rs1] as i64).wrapping_shr(shamt)) as u64;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    _ => {}
+                }
+            }
             0x23 => {
                 // S store value to memory
                 let addr = self.regs[rs1].wrapping_add(get_s_imm(inst));
@@ -172,10 +206,63 @@ impl Cpu {
                         // sw
                         self.store(addr, 32, self.regs[rs2])?;
                     }
+                    0x3 => {
+                        // sd
+                        self.store(addr, 64, self.regs[rs2])?;
+                    }
+                    _ => {}
+                }
+            }
+            0x2a => {
+                let shamt = (self.regs[rs2] & 0x1f) as u32;
+                match funct3 {
+                    0x0 => {
+                        match funct7 {
+                            0x0 => {
+                                //R addw - add rs1 with rs2, store to rd
+                                self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]) as i32
+                                    as i64 as u64;
+                            }
+                            0x20 => {
+                                //R subw - sub rs1 with rs2, store to rd
+                                self.regs[rd] = self.regs[rs1].wrapping_sub(self.regs[rs2]) as i32
+                                    as i64 as u64;
+                            }
+                            _ => {}
+                        }
+                    }
+                    0x1 => {
+                        //R sllw - rd = rs1 << rs2
+                        self.regs[rd] = (self.regs[rs1] as u32).wrapping_shl(shamt) as i32 as u64;
+                    }
+                    0x5 => {
+                        match funct7 {
+                            0x0 => {
+                                //R srlw (unsigned) - rd = rs1 >> rs2
+                                self.regs[rd] =
+                                    (self.regs[rs1] as u32).wrapping_shr(shamt) as i32 as u64;
+                            }
+                            0x20 => {
+                                //R sraw - rd = rs1 >> rs2
+                                self.regs[rd] =
+                                    ((self.regs[rs1] as i32).wrapping_shr(shamt)) as u64;
+                            }
+                            _ => {}
+                        }
+                    }
+                    0x6 => {
+                        //R or - rd = rs1 | rs2
+                        self.regs[rd] = self.regs[rs1] | self.regs[rs2];
+                    }
+                    0x7 => {
+                        //R and - rd = rs1 & rs2
+                        self.regs[rd] = self.regs[rs1] & self.regs[rs2];
+                    }
                     _ => {}
                 }
             }
             0x33 => {
+                let shamt = (self.regs[rs2] & 0x3f) as u32;
                 match funct3 {
                     0x0 => {
                         match funct7 {
@@ -192,8 +279,7 @@ impl Cpu {
                     }
                     0x1 => {
                         //R sll - rd = rs1 << rs2
-                        let shamt = (self.regs[rs2] & 0x3f) as u32;
-                        self.regs[rd] = ((self.regs[rs1] as i64) << shamt) as u64;
+                        self.regs[rd] = self.regs[rs1].wrapping_shl(shamt);
                     }
                     0x2 => {
                         //R slt - if rs1 < rs2, rd = 1, else rd = 0
@@ -218,14 +304,13 @@ impl Cpu {
                     0x5 => {
                         match funct7 {
                             0x0 => {
-                                //R srl (unsigned) - rd = rs1 >> rs2 
-                                let shamt = (self.regs[rs2] & 0x3f) as u32;
-                                self.regs[rd] = self.regs[rs1] >> shamt;
+                                //R srl (unsigned) - rd = rs1 >> rs2
+                                self.regs[rd] = self.regs[rs1].wrapping_shr(shamt);
                             }
                             0x20 => {
-                                //R sra - rd = rs1 >> rs2 
-                                let shamt = (self.regs[rs2] & 0x3f) as u32;
-                                self.regs[rd] =((self.regs[rs1] as i64) >> shamt) as u64;
+                                //R sra - rd = rs1 >> rs2
+                                self.regs[rd] =
+                                    ((self.regs[rs1] as i64).wrapping_shr(shamt)) as u64;
                             }
                             _ => {}
                         }
@@ -349,9 +434,9 @@ impl Cpu {
             let i3 = format!("x{}", i + 3);
             let line = format!(
                 "{:3}({:^4}) = {:<#18x} {:3}({:^4}) = {:<#18x} {:3}({:^4}) = {:<#18x} {:3}({:^4}) = {:<#18x}\n",
-                i0, RVABI[i], self.regs[i], 
-                i1, RVABI[i + 1], self.regs[i + 1], 
-                i2, RVABI[i + 2], self.regs[i + 2], 
+                i0, RVABI[i], self.regs[i],
+                i1, RVABI[i + 1], self.regs[i + 1],
+                i2, RVABI[i + 2], self.regs[i + 2],
                 i3, RVABI[i + 3], self.regs[i + 3],
             );
             output = output + &line;
