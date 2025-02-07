@@ -1,0 +1,1 @@
+clang -S -nostdlib --target=riscv64 -march=rv64g -mno-relax -mabi=lp64 -o target/out.s $1

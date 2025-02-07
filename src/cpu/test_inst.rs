@@ -228,3 +228,17 @@ srli x3, x1, 1
 ";
     riscv_test!(code, "test_srli", 3, "x3" => 2);
 }
+
+#[test]
+fn test_simple_c() {
+    let code = "addi	sp,sp,-16
+            sd	s0,8(sp)
+            addi	s0,sp,16
+            li	a5,42
+            mv	a0,a5
+            ld	s0,8(sp)
+            addi	sp,sp,16
+            jr	ra
+        ";
+    riscv_test!(code, "test_simple_c", 3, "a0" => 42);
+}

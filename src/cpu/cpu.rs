@@ -37,12 +37,12 @@ impl Cpu {
 
     // Load value from dram
     pub fn load(&self, addr: u64, size: u64) -> Result<u64, Exept> {
-        self.bus.load(addr + DRAM_BASE, size)
+        self.bus.load(addr, size)
     }
 
     // Store value to dram
     pub fn store(&mut self, addr: u64, size: u64, value: u64) -> Result<(), Exept> {
-        self.bus.store(addr + DRAM_BASE, size, value)
+        self.bus.store(addr, size, value)
     }
 
     pub fn fetch(&mut self) -> Result<u64, Exept> {
@@ -98,7 +98,7 @@ impl Cpu {
             0x13 => {
                 // I
                 let imm = get_i_imm(inst);
-                let shamt = (imm & 0x1f) as u32;
+                let shamt = (imm & 0x3f) as u32;
                 match funct3 {
                     0x0 => {
                         //I addi - add rs1 with immediate, store to rd
@@ -158,7 +158,7 @@ impl Cpu {
                 //U auipc - add imm(with << 12) to pc and store to rd
                 self.regs[rd] = base_pc.wrapping_add(inst & U_IMMEDIATE);
             }
-            0x1a => {
+            0x1b => {
                 // I
                 let imm = get_i_imm(inst);
                 let shamt = (imm & 0x1f) as u32;

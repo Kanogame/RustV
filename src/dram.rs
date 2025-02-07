@@ -13,7 +13,7 @@ impl Dram {
     }
 
     pub fn load(&self, addr: u64, size: u64) -> Result<u64, Exept> {
-        if ![8, 16, 24, 32].contains(&size) {
+        if ![8, 16, 24, 32, 64].contains(&size) {
             return Err(Exept::load_access_fault(size));
         }
 
@@ -29,7 +29,7 @@ impl Dram {
     }
 
     pub fn store(&mut self, addr: u64, size: u64, value: u64) -> Result<(), Exept> {
-        if ![8, 16, 24, 32].contains(&size) {
+        if ![8, 16, 24, 32, 64].contains(&size) {
             return Err(Exept::store_amo_access_fault(size));
         }
 
