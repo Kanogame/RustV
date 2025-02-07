@@ -195,6 +195,49 @@ impl Cpu {
                         let shamt = (self.regs[rs2] & 0x3f) as u32;
                         self.regs[rd] = ((self.regs[rs1] as i64) << shamt) as u64;
                     }
+                    0x2 => {
+                        //R slt - if rs1 < rs2, rd = 1, else rd = 0
+                        if (self.regs[rs1] as i64) < (self.regs[rs2] as i64) {
+                            self.regs[rd] = 1;
+                        } else {
+                            self.regs[rd] = 0;
+                        }
+                    }
+                    0x3 => {
+                        //R sltu (unsigned) - if rs1 < rs2, rd = 1, else rd = 0
+                        if self.regs[rs1] < self.regs[rs2] {
+                            self.regs[rd] = 1;
+                        } else {
+                            self.regs[rd] = 0;
+                        }
+                    }
+                    0x4 => {
+                        //R xor - rd = rs1 ^ rs2
+                        self.regs[rd] = self.regs[rs1] ^ self.regs[rs2];
+                    }
+                    0x5 => {
+                        match funct7 {
+                            0x0 => {
+                                //R srl (unsigned) - rd = rs1 >> rs2 
+                                let shamt = (self.regs[rs2] & 0x3f) as u32;
+                                self.regs[rd] = self.regs[rs1] >> shamt;
+                            }
+                            0x20 => {
+                                //R sra - rd = rs1 >> rs2 
+                                let shamt = (self.regs[rs2] & 0x3f) as u32;
+                                self.regs[rd] =((self.regs[rs1] as i64) >> shamt) as u64;
+                            }
+                            _ => {}
+                        }
+                    }
+                    0x6 => {
+                        //R or - rd = rs1 | rs2
+                        self.regs[rd] = self.regs[rs1] | self.regs[rs2];
+                    }
+                    0x7 => {
+                        //R and - rd = rs1 & rs2
+                        self.regs[rd] = self.regs[rs1] & self.regs[rs2];
+                    }
                     _ => {}
                 }
             }
