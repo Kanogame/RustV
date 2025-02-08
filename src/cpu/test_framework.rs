@@ -73,7 +73,7 @@ pub fn rv_helper(code: &str, testname: &str, n_clock: usize) -> Result<Cpu, std:
         let inst = match cpu.fetch() {
             Ok(inst) => inst,
             Err(er) => {
-                println!("{}", er);
+                println!("f{}", er);
                 break;
             }
         };
@@ -81,7 +81,7 @@ pub fn rv_helper(code: &str, testname: &str, n_clock: usize) -> Result<Cpu, std:
         match cpu.execute(inst) {
             Ok(pc) => cpu.pc = pc,
             Err(er) => {
-                println!("{}", er);
+                println!("e{}", er);
                 break;
             }
         }

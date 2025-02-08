@@ -54,12 +54,11 @@ impl Cpu {
 
         // by spec x0 is ALWAYS zero
         self.regs[0] = 0;
-        let base_pc = self.pc - DRAM_BASE;
 
         // all convertions are nessesary to preserve sign
         // i8 -> i64 (will sign-extend)
         // i8 -> u64 (will zero-extend)
-        println!("{}", opcode);
+        println!("{}: {} {}", opcode, funct3, funct7);
         match opcode {
             0x3 => {
                 //I load value from memory to rd
@@ -93,7 +92,7 @@ impl Cpu {
                         // lwu
                         self.regs[rd] = self.load(addr, 32)?;
                     }
-                    _ => {}
+                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
                 }
             }
             0x13 => {
@@ -137,10 +136,9 @@ impl Cpu {
                             }
                             0x20 => {
                                 //S (without rs2) srai - rd = rs1 >> rs2 (arithmetic)
-                                self.regs[rd] =
-                                    ((self.regs[rs1] as i64).wrapping_shr(shamt)) as u64;
+                                self.regs[rd] = (self.regs[rs1] as i64).wrapping_shr(shamt) as u64;
                             }
-                            _ => {}
+                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
                         }
                     }
                     0x6 => {
@@ -152,12 +150,14 @@ impl Cpu {
                         self.regs[rd] = self.regs[rs1] & imm;
                     }
 
-                    _ => {}
+                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
                 }
             }
             0x17 => {
                 //U auipc - add imm(with << 12) to pc and store to rd
-                self.regs[rd] = base_pc.wrapping_add((inst & U_IMMEDIATE) as i32 as i64 as u64);
+                self.regs[rd] = self
+                    .pc
+                    .wrapping_add((inst & U_IMMEDIATE) as i32 as i64 as u64);
             }
             0x1b => {
                 // I
@@ -184,11 +184,11 @@ impl Cpu {
                                 self.regs[rd] =
                                     ((self.regs[rs1] as i32).wrapping_shr(shamt)) as i64 as u64;
                             }
-                            _ => {}
+                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
                         }
                     }
 
-                    _ => {}
+                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
                 }
             }
             0x23 => {
@@ -211,7 +211,7 @@ impl Cpu {
                         // sd
                         self.store(addr, 64, self.regs[rs2])?;
                     }
-                    _ => {}
+                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
                 }
             }
             0x33 => {
@@ -227,7 +227,7 @@ impl Cpu {
                                 //R sub - sub rs1 with rs2, store to rd
                                 self.regs[rd] = self.regs[rs1].wrapping_sub(self.regs[rs2]);
                             }
-                            _ => {}
+                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
                         }
                     }
                     0x1 => {
@@ -265,7 +265,7 @@ impl Cpu {
                                 self.regs[rd] =
                                     ((self.regs[rs1] as i64).wrapping_shr(shamt)) as u64;
                             }
-                            _ => {}
+                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
                         }
                     }
                     0x6 => {
@@ -276,7 +276,7 @@ impl Cpu {
                         //R and - rd = rs1 & rs2
                         self.regs[rd] = self.regs[rs1] & self.regs[rs2];
                     }
-                    _ => {}
+                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
                 }
             }
             0x37 => {
@@ -298,7 +298,7 @@ impl Cpu {
                                 self.regs[rd] =
                                     (self.regs[rs1].wrapping_sub(self.regs[rs2]) as i32) as u64;
                             }
-                            _ => {}
+                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
                         }
                     }
                     0x1 => {
@@ -317,7 +317,7 @@ impl Cpu {
                                 self.regs[rd] =
                                     ((self.regs[rs1] as i32).wrapping_shr(shamt)) as u64;
                             }
-                            _ => {}
+                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
                         }
                     }
                     0x6 => {
@@ -328,7 +328,7 @@ impl Cpu {
                         //R and - rd = rs1 & rs2
                         self.regs[rd] = self.regs[rs1] & self.regs[rs2];
                     }
-                    _ => {}
+                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
                 }
             }
             0x63 => {
@@ -352,14 +352,14 @@ impl Cpu {
                     0x4 =>
                     // blt
                     {
-                        if (self.regs[rs1] as i64) < self.regs[rs2] as i64 {
+                        if (self.regs[rs1] as i64) < (self.regs[rs2] as i64) {
                             return Ok(self.pc.wrapping_add(imm));
                         }
                     }
                     0x5 =>
                     // bge
                     {
-                        if (self.regs[rs1] as i64) >= self.regs[rs2] as i64 {
+                        if (self.regs[rs1] as i64) >= (self.regs[rs2] as i64) {
                             return Ok(self.pc.wrapping_add(imm));
                         }
                     }
@@ -377,7 +377,7 @@ impl Cpu {
                             return Ok(self.pc.wrapping_add(imm));
                         }
                     }
-                    _ => {}
+                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
                 }
             }
             0x67 => {
@@ -394,7 +394,14 @@ impl Cpu {
                 //J jal - jumps to pc + imm20 << 1
                 // imm reordering, check wiki for J order
                 self.regs[rd] = self.pc + 4;
-                return Ok(self.pc.wrapping_add(get_j_imm(inst)));
+
+                // imm[20|10:1|11|19:12] = inst[31|30:21|20|19:12]
+                let imm = (((inst & 0x80000000) as i32 as i64 >> 11) as u64) // imm[20]
+                    | (inst & 0xff000) // imm[19:12]
+                    | ((inst >> 9) & 0x800) // imm[11]
+                    | ((inst >> 20) & 0x7fe); // imm[10:1]
+
+                return Ok(self.pc.wrapping_add(imm));
             }
             _ => {
                 return Err(Exept::illegal_instruction(opcode as u64));
@@ -475,7 +482,7 @@ fn get_j_imm(inst: u64) -> u64 {
 }
 
 fn get_b_imm(inst: u64) -> u64 {
-    return (((inst & 0x80000000) as i32 as i64 >> 19) as u64)
+    return (((inst & 0x8000_0000) as i32 as i64 >> 19) as u64)
         | ((inst & 0x80) << 4)
         | ((inst >> 20) & 0x7e0)
         | ((inst >> 7) & 0x1e);
