@@ -403,9 +403,7 @@ impl Cpu {
 
                 return Ok(self.pc.wrapping_add(imm));
             }
-            _ => {
-                return Err(Exept::illegal_instruction(opcode as u64));
-            }
+            _ => return Err(Exept::illegal_instruction(opcode as u64)),
         }
         Ok(self.pc.wrapping_add(4))
     }

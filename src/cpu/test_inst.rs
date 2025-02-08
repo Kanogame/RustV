@@ -1,8 +1,10 @@
-use crate::{cpu::test_framework::rv_helper, param::DRAM_BASE};
+use crate::{
+    cpu::test_framework::rv_asm_helper, cpu::test_framework::rv_c_helper, param::DRAM_BASE,
+};
 
 macro_rules! riscv_asm_test {
         ($code:expr, $name: expr, $clock:expr, $($real:expr => $expect:expr),* ) => {
-            match rv_helper($code, $name, $clock) {
+            match rv_asm_helper($code, $name, $clock) {
                 Ok(cpu) => {
                     $(if cpu.reg($real)!= $expect {
                         cpu.dump_registers();
@@ -19,7 +21,7 @@ macro_rules! riscv_asm_test {
 
 macro_rules! riscv_c_test {
             ($code:expr, $path: expr, $clock:expr, $($real:expr => $expect:expr),* ) => {
-                match rv_helper($code, $name, $clock) {
+                match rv_c_helper($code, $path, $clock) {
                     Ok(cpu) => {
                         $(if cpu.reg($real)!= $expect {
                             cpu.dump_registers();
@@ -240,24 +242,10 @@ srai x3, x1, 1
 
 #[test]
 fn test_srli() {
-    let code = "addi x3, x3, 0xfff
+    let code = "addi x3, x3, 4
 srli x3, x3, 1
 ";
     riscv_asm_test!(code, "test_srli", 3, "x3" => 2);
-}
-
-#[test]
-fn test_simple_c() {
-    let code = "addi	sp,sp,-16
-            sd	s0,8(sp)
-            addi	s0,sp,16
-            li	a5,42
-            mv	a0,a5
-            ld	s0,8(sp)
-            addi	sp,sp,16
-            jr	ra
-        ";
-    riscv_asm_test!(code, "test_simple_c", 20, "a0" => 42);
 }
 
 #[test]
@@ -274,62 +262,16 @@ fn test_store_load1() {
 }
 
 #[test]
-fn test_fib_c() {
-    let code = "
-    main:                                   # @main
-# %bb.0:
-	addi	sp, sp, -32
-	sd	ra, 24(sp)                      # 8-byte Folded Spill
-	sd	s0, 16(sp)                      # 8-byte Folded Spill
-	addi	s0, sp, 32
-	li	a0, 0
-	sw	a0, -20(s0)
-	li	a0, 10
-	call	fib
-	ld	ra, 24(sp)                      # 8-byte Folded Reload
-	ld	s0, 16(sp)                      # 8-byte Folded Reload
-	addi	sp, sp, 32
-	ret
-fib:                                    # @fib
-# %bb.0:
-	addi	sp, sp, -32
-	sd	ra, 24(sp)                      # 8-byte Folded Spill
-	sd	s0, 16(sp)                      # 8-byte Folded Spill
-	addi	s0, sp, 32
-                                        # kill: def $x11 killed $x10
-	sw	a0, -24(s0)
-	lw	a0, -24(s0)
-	beqz	a0, .LBB1_2
-	j	.LBB1_1
-.LBB1_1:
-	lw	a0, -24(s0)
-	li	a1, 1
-	bne	a0, a1, .LBB1_3
-	j	.LBB1_2
-.LBB1_2:
-	lw	a0, -24(s0)
-	sw	a0, -20(s0)
-	j	.LBB1_4
-.LBB1_3:
-	lw	a0, -24(s0)
-	addiw	a0, a0, -1
-	call	fib
-	sd	a0, -32(s0)                     # 8-byte Folded Spill
-	lw	a0, -24(s0)
-	addiw	a0, a0, -2
-	call	fib
-	mv	a1, a0
-	ld	a0, -32(s0)                     # 8-byte Folded Reload
-	addw	a0, a0, a1
-	sw	a0, -20(s0)
-	j	.LBB1_4
-.LBB1_4:
-	lw	a0, -20(s0)
-	ld	ra, 24(sp)                      # 8-byte Folded Reload
-	ld	s0, 16(sp)                      # 8-byte Folded Reload
-	addi	sp, sp, 32
-	ret
-";
+fn test_simple_c() {
+    riscv_c_test!("./m_tests/simple.c", "test_simple_c", 10000, "a0" => 42);
+}
 
-    riscv_asm_test!(code, "test_fib_c", 10000, "a0" => 55);
+#[test]
+fn test_fib() {
+    riscv_c_test!("./m_tests/fib.c", "test_fib_c", 10000, "a0" => 55);
+}
+
+#[test]
+fn test_sort_c() {
+    riscv_c_test!("./m_tests/sorting.c", "test_sorting_c", 10000, "a0" => 20);
 }
