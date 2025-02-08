@@ -57,8 +57,9 @@ impl Cpu {
         let base_pc = self.pc - DRAM_BASE;
 
         // all convertions are nessesary to preserve sign
-        // i8 -> i64 (will sign-extend) -> u64 (just bytes)
+        // i8 -> i64 (will sign-extend)
         // i8 -> u64 (will zero-extend)
+        println!("{}", opcode);
         match opcode {
             0x3 => {
                 //I load value from memory to rd
@@ -70,11 +71,11 @@ impl Cpu {
                     }
                     0x1 => {
                         // lh
-                        self.regs[rd] = self.load(addr, 16)? as i8 as i64 as u64;
+                        self.regs[rd] = self.load(addr, 16)? as i16 as i64 as u64;
                     }
                     0x2 => {
                         // lw
-                        self.regs[rd] = self.load(addr, 32)? as i8 as i64 as u64;
+                        self.regs[rd] = self.load(addr, 32)? as i32 as i64 as u64;
                     }
                     0x3 => {
                         // ld
@@ -97,7 +98,7 @@ impl Cpu {
             }
             0x13 => {
                 // I
-                let imm = get_i_imm(inst);
+                let imm = ((inst & 0xfff00000) as i32 as i64 >> 20) as u64;
                 let shamt = (imm & 0x3f) as u32;
                 match funct3 {
                     0x0 => {
@@ -106,7 +107,7 @@ impl Cpu {
                     }
                     0x1 => {
                         //S (without rs2) slli - rd = rs1 << rs2
-                        self.regs[rd] = (self.regs[rs1].wrapping_shl(shamt)) as i32 as i64 as u64;
+                        self.regs[rd] = self.regs[rs1].wrapping_shl(shamt);
                     }
                     0x2 => {
                         //I slti - 1 to rd if signed rs1 < signed imm, else 0
@@ -156,7 +157,7 @@ impl Cpu {
             }
             0x17 => {
                 //U auipc - add imm(with << 12) to pc and store to rd
-                self.regs[rd] = base_pc.wrapping_add(inst & U_IMMEDIATE);
+                self.regs[rd] = base_pc.wrapping_add((inst & U_IMMEDIATE) as i32 as i64 as u64);
             }
             0x1b => {
                 // I
@@ -175,13 +176,13 @@ impl Cpu {
                         match funct7 {
                             0x0 => {
                                 //S (without rs2) srliw - rd = rs1 >> rs2
-                                self.regs[rd] =
-                                    (self.regs[rs1].wrapping_shr(shamt)) as i32 as i64 as u64;
+                                self.regs[rd] = ((self.regs[rs1] as u32).wrapping_shr(shamt)) as i32
+                                    as i64 as u64;
                             }
                             0x20 => {
                                 //S (without rs2) sraiw - rd = rs1 >> rs2 (arithmetic)
                                 self.regs[rd] =
-                                    ((self.regs[rs1] as i64).wrapping_shr(shamt)) as u64;
+                                    ((self.regs[rs1] as i32).wrapping_shr(shamt)) as i64 as u64;
                             }
                             _ => {}
                         }
@@ -209,54 +210,6 @@ impl Cpu {
                     0x3 => {
                         // sd
                         self.store(addr, 64, self.regs[rs2])?;
-                    }
-                    _ => {}
-                }
-            }
-            0x2a => {
-                let shamt = (self.regs[rs2] & 0x1f) as u32;
-                match funct3 {
-                    0x0 => {
-                        match funct7 {
-                            0x0 => {
-                                //R addw - add rs1 with rs2, store to rd
-                                self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]) as i32
-                                    as i64 as u64;
-                            }
-                            0x20 => {
-                                //R subw - sub rs1 with rs2, store to rd
-                                self.regs[rd] = self.regs[rs1].wrapping_sub(self.regs[rs2]) as i32
-                                    as i64 as u64;
-                            }
-                            _ => {}
-                        }
-                    }
-                    0x1 => {
-                        //R sllw - rd = rs1 << rs2
-                        self.regs[rd] = (self.regs[rs1] as u32).wrapping_shl(shamt) as i32 as u64;
-                    }
-                    0x5 => {
-                        match funct7 {
-                            0x0 => {
-                                //R srlw (unsigned) - rd = rs1 >> rs2
-                                self.regs[rd] =
-                                    (self.regs[rs1] as u32).wrapping_shr(shamt) as i32 as u64;
-                            }
-                            0x20 => {
-                                //R sraw - rd = rs1 >> rs2
-                                self.regs[rd] =
-                                    ((self.regs[rs1] as i32).wrapping_shr(shamt)) as u64;
-                            }
-                            _ => {}
-                        }
-                    }
-                    0x6 => {
-                        //R or - rd = rs1 | rs2
-                        self.regs[rd] = self.regs[rs1] | self.regs[rs2];
-                    }
-                    0x7 => {
-                        //R and - rd = rs1 & rs2
-                        self.regs[rd] = self.regs[rs1] & self.regs[rs2];
                     }
                     _ => {}
                 }
@@ -328,7 +281,55 @@ impl Cpu {
             }
             0x37 => {
                 //U lui - load imm to register, with << 12
-                self.regs[rd] = inst & U_IMMEDIATE;
+                self.regs[rd] = (inst & U_IMMEDIATE) as i32 as i64 as u64;
+            }
+            0x3b => {
+                let shamt = (self.regs[rs2] & 0x1f) as u32;
+                match funct3 {
+                    0x0 => {
+                        match funct7 {
+                            0x0 => {
+                                //R addw - add rs1 with rs2, store to rd
+                                self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]) as i32
+                                    as i64 as u64;
+                            }
+                            0x20 => {
+                                //R subw - sub rs1 with rs2, store to rd
+                                self.regs[rd] =
+                                    (self.regs[rs1].wrapping_sub(self.regs[rs2]) as i32) as u64;
+                            }
+                            _ => {}
+                        }
+                    }
+                    0x1 => {
+                        //R sllw - rd = rs1 << rs2
+                        self.regs[rd] = (self.regs[rs1] as u32).wrapping_shl(shamt) as i32 as u64;
+                    }
+                    0x5 => {
+                        match funct7 {
+                            0x0 => {
+                                //R srlw (unsigned) - rd = rs1 >> rs2
+                                self.regs[rd] =
+                                    (self.regs[rs1] as u32).wrapping_shr(shamt) as i32 as u64;
+                            }
+                            0x20 => {
+                                //R sraw - rd = rs1 >> rs2
+                                self.regs[rd] =
+                                    ((self.regs[rs1] as i32).wrapping_shr(shamt)) as u64;
+                            }
+                            _ => {}
+                        }
+                    }
+                    0x6 => {
+                        //R or - rd = rs1 | rs2
+                        self.regs[rd] = self.regs[rs1] | self.regs[rs2];
+                    }
+                    0x7 => {
+                        //R and - rd = rs1 & rs2
+                        self.regs[rd] = self.regs[rs1] & self.regs[rs2];
+                    }
+                    _ => {}
+                }
             }
             0x63 => {
                 // S - add imm12 to pc if
@@ -381,8 +382,13 @@ impl Cpu {
             }
             0x67 => {
                 //I jalr - jumps to rs1 + imm12
-                self.regs[rd] = self.pc + 4;
-                return Ok(self.regs[rs1].wrapping_add(get_i_imm(inst) + DRAM_BASE));
+                let t = self.pc + 4;
+
+                let imm = ((((inst & 0xfff00000) as i32) as i64) >> 20) as u64;
+                let new_pc = (self.regs[rs1].wrapping_add(imm)) & !1;
+
+                self.regs[rd] = t;
+                return Ok(new_pc);
             }
             0x6f => {
                 //J jal - jumps to pc + imm20 << 1

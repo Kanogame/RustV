@@ -72,12 +72,18 @@ pub fn rv_helper(code: &str, testname: &str, n_clock: usize) -> Result<Cpu, std:
     for _ in 0..n_clock {
         let inst = match cpu.fetch() {
             Ok(inst) => inst,
-            Err(_) => break,
+            Err(er) => {
+                println!("{}", er);
+                break;
+            }
         };
 
         match cpu.execute(inst) {
             Ok(pc) => cpu.pc = pc,
-            Err(er) => println!("{}", er),
+            Err(er) => {
+                println!("{}", er);
+                break;
+            }
         }
     }
 

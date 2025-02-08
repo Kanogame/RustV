@@ -31,7 +31,7 @@ fn main() -> io::Result<()> {
         let inst = match cpu.fetch() {
             Ok(inst) => inst,
             Err(e) => {
-                println!("{}", e);
+                panic!("{}", e);
                 break;
             }
         };
@@ -39,7 +39,7 @@ fn main() -> io::Result<()> {
         match cpu.execute(inst) {
             Ok(next_pc) => cpu.pc = next_pc,
             Err(e) => {
-                println!("{}", e);
+                panic!("{}", e);
                 break;
             }
         };

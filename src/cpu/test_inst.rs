@@ -1,10 +1,13 @@
-use crate::cpu::test_framework::rv_helper;
+use crate::{cpu::test_framework::rv_helper, param::DRAM_BASE};
 
 macro_rules! riscv_test {
         ($code:expr, $name: expr, $clock:expr, $($real:expr => $expect:expr),* ) => {
             match rv_helper($code, $name, $clock) {
                 Ok(cpu) => {
-                    $(assert_eq!(cpu.reg($real), $expect);)*
+                    $(if cpu.reg($real)!= $expect {
+                        cpu.dump_registers();
+                        panic!("left {}, right {}", cpu.reg($real), $expect);
+                    })*
                 }
                 Err(e) => {
                     println!("error: {}", e);
@@ -64,13 +67,11 @@ addi x20, x20, 1";
 
 #[test]
 fn test_jalr() {
-    let code = "addi x20, x20, 8
-addi x21, x21, 7
-addi x20, x20, 4
-jalr x1, x20, 8
-addi x21, x21, 1
-addi x21, x21, 1";
-    riscv_test!(code, "test_jalr", 6, "x21" => 8);
+    let code = "
+        addi a1, zero, 42
+        jalr a0, -8(a1)
+    ";
+    riscv_test!(code, "test_jalr", 2, "a0" => DRAM_BASE + 8, "pc" => 34);
 }
 
 #[test]
@@ -115,31 +116,30 @@ addi x31, x0, 1
 
 #[test]
 fn test_slb() {
-    let code = "addi x21, x0, 2
+    let code = "addi sp, sp, -1
 addi x20, x0, 82
-sb x20, 0(x21)
-lb x22, 0(x21)
+sb x20, 0(sp)
+lb x22, 0(sp)
 ";
     riscv_test!(code, "test_slb", 4, "x20" => 82, "x22" => 82);
 }
 
 #[test]
 fn test_swlbu() {
-    let code = "addi x21, x0, 0
+    let code = "addi sp, sp, -4
 addi x20, x0, 247
-sw x20, 0(x21)
-lbu x22, 0(x21)
+sw x20, 0(sp)
+lbu x22, 0(sp)
 ";
     riscv_test!(code, "test_swlbu", 4, "x20" => 247, "x22" => 247);
 }
 
 #[test]
-fn test_max_32() {
-    let code = "
-lui x20, 0x80000
-addi x20, x20, -1
+fn test_max_64() {
+    let code = "addi x20, x20, -1
+srli x20, x20, 1
 ";
-    riscv_test!(code, "test_max_32", 2, "x20" => 0x7fff_ffff);
+    riscv_test!(code, "test_max_64", 2, "x20" => 0x7fff_ffff_ffff_ffff as u64);
 }
 
 #[test]
@@ -223,8 +223,8 @@ srai x3, x1, 1
 
 #[test]
 fn test_srli() {
-    let code = "addi x1, x0, 4 
-srli x3, x1, 1
+    let code = "addi x3, x3, 0xfff
+srli x3, x3, 1
 ";
     riscv_test!(code, "test_srli", 3, "x3" => 2);
 }
@@ -240,5 +240,77 @@ fn test_simple_c() {
             addi	sp,sp,16
             jr	ra
         ";
-    riscv_test!(code, "test_simple_c", 3, "a0" => 42);
+    riscv_test!(code, "test_simple_c", 20, "a0" => 42);
+}
+
+#[test]
+fn test_store_load1() {
+    let code = "
+        addi s0, zero, 256
+        addi sp, sp, -16
+        sd   s0, 8(sp)
+        lb   t1, 8(sp)
+        lh   t2, 8(sp)
+    ";
+    riscv_test!(code, "test_store_load1", 10, "t1" => 0, "t2" => 256);
+}
+
+#[test]
+fn test_fib_c() {
+    let code = "
+main: 
+	addi	sp, sp, -32
+	sd	ra, 24(sp)                      # 8-byte Folded Spill
+	sd	s0, 16(sp)                      # 8-byte Folded Spill
+	addi	s0, sp, 32
+	li	a0, 0
+	sw	a0, -20(s0)
+	li	a0, 5
+    addi x31, x0, 1
+	call	fib
+	ld	ra, 24(sp)                      # 8-byte Folded Reload
+	ld	s0, 16(sp)                      # 8-byte Folded Reload
+	addi	sp, sp, 32
+	ret
+fib:
+	addi	sp, sp, -32
+	sd	ra, 24(sp)                      # 8-byte Folded Spill
+	sd	s0, 16(sp)                      # 8-byte Folded Spill
+	addi	s0, sp, 32
+                                        # kill: def $x11 killed $x10
+	sw	a0, -24(s0)
+	lw	a0, -24(s0)
+	beqz	a0, .LBB1_2
+	j	.LBB1_1
+.LBB1_1:
+	lw	a0, -24(s0)
+	li	a1, 1
+	bne	a0, a1, .LBB1_3
+	j	.LBB1_2
+.LBB1_2:
+	lw	a0, -24(s0)
+	sw	a0, -20(s0)
+	j	.LBB1_4
+.LBB1_3:
+	lw	a0, -24(s0)
+	addiw	a0, a0, -1
+	call	fib
+	sd	a0, -32(s0)                     # 8-byte Folded Spill
+	lw	a0, -24(s0)
+	addiw	a0, a0, -2
+	call	fib
+	mv	a1, a0
+	ld	a0, -32(s0)                     # 8-byte Folded Reload
+	addw	a0, a0, a1
+	sw	a0, -20(s0)
+	j	.LBB1_4
+.LBB1_4:
+	lw	a0, -20(s0)
+	ld	ra, 24(sp)                      # 8-byte Folded Reload
+	ld	s0, 16(sp)                      # 8-byte Folded Reload
+	addi	sp, sp, 32
+	ret
+";
+
+    riscv_test!(code, "test_fib_c", 1000000, "a0" => 8);
 }
