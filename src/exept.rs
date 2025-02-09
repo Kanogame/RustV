@@ -1,6 +1,6 @@
 pub struct Exept {
     message: String,
-    value: u64,
+    pub value: u64,
 }
 
 impl Exept {

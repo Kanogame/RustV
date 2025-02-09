@@ -58,47 +58,26 @@ impl Cpu {
         // all convertions are nessesary to preserve sign
         // i8 -> i64 (will sign-extend)
         // i8 -> u64 (will zero-extend)
-        println!("{}: {} {}", opcode, funct3, funct7);
+        println!("{:x}: {:x} {:x} -> {:x}", opcode, funct3, funct7, inst);
         match opcode {
             0x3 => {
                 //I load value from memory to rd
                 let addr = self.regs[rs1].wrapping_add(get_i_imm(inst));
-                match funct3 {
-                    0x0 => {
-                        // lb
-                        self.regs[rd] = self.load(addr, 8)? as i8 as i64 as u64;
-                    }
-                    0x1 => {
-                        // lh
-                        self.regs[rd] = self.load(addr, 16)? as i16 as i64 as u64;
-                    }
-                    0x2 => {
-                        // lw
-                        self.regs[rd] = self.load(addr, 32)? as i32 as i64 as u64;
-                    }
-                    0x3 => {
-                        // ld
-                        self.regs[rd] = self.load(addr, 64)?;
-                    }
-                    0x4 => {
-                        // lbu
-                        self.regs[rd] = self.load(addr, 8)?;
-                    }
-                    0x5 => {
-                        // lhu
-                        self.regs[rd] = self.load(addr, 16)?;
-                    }
-                    0x6 => {
-                        // lwu
-                        self.regs[rd] = self.load(addr, 32)?;
-                    }
+                self.regs[rd] = match funct3 {
+                    0x0 => self.load(addr, 8)? as i8 as i64 as u64, // lb
+                    0x1 => self.load(addr, 16)? as i16 as i64 as u64, // lh
+                    0x2 => self.load(addr, 32)? as i32 as i64 as u64, // lw
+                    0x3 => self.load(addr, 64)?,                    //ld
+                    0x4 => self.load(addr, 8)?,                     // lbu
+                    0x5 => self.load(addr, 16)?,                    // lhu
+                    0x6 => self.load(addr, 32)?,                    // lwu
                     _ => return Err(Exept::illegal_instruction(opcode as u64)),
                 }
             }
             0x13 => {
                 // I
-                let imm = ((inst & 0xfff00000) as i32 as i64 >> 20) as u64;
-                let shamt = (imm & 0x3f) as u32;
+                let imm = get_i_imm(inst);
+                let shamt = get_shamt_6(imm);
                 match funct3 {
                     0x0 => {
                         //I addi - add rs1 with immediate, store to rd
@@ -155,14 +134,12 @@ impl Cpu {
             }
             0x17 => {
                 //U auipc - add imm(with << 12) to pc and store to rd
-                self.regs[rd] = self
-                    .pc
-                    .wrapping_add((inst & U_IMMEDIATE) as i32 as i64 as u64);
+                self.regs[rd] = self.pc.wrapping_add(get_u_imm(inst));
             }
             0x1b => {
                 // I
                 let imm = get_i_imm(inst);
-                let shamt = (imm & 0x1f) as u32;
+                let shamt = get_shamt_5(imm);
                 match funct3 {
                     0x0 => {
                         //I addiw - add rs1 with immediate, store to rd
@@ -195,27 +172,15 @@ impl Cpu {
                 // S store value to memory
                 let addr = self.regs[rs1].wrapping_add(get_s_imm(inst));
                 match funct3 {
-                    0x0 => {
-                        // sb
-                        self.store(addr, 8, self.regs[rs2])?;
-                    }
-                    0x1 => {
-                        // sh
-                        self.store(addr, 16, self.regs[rs2])?;
-                    }
-                    0x2 => {
-                        // sw
-                        self.store(addr, 32, self.regs[rs2])?;
-                    }
-                    0x3 => {
-                        // sd
-                        self.store(addr, 64, self.regs[rs2])?;
-                    }
+                    0x0 => self.store(addr, 8, self.regs[rs2])?,  // sb
+                    0x1 => self.store(addr, 16, self.regs[rs2])?, // sh
+                    0x2 => self.store(addr, 32, self.regs[rs2])?, // sw
+                    0x3 => self.store(addr, 64, self.regs[rs2])?, // sd
                     _ => return Err(Exept::illegal_instruction(opcode as u64)),
                 }
             }
             0x33 => {
-                let shamt = (self.regs[rs2] & 0x3f) as u32;
+                let shamt = get_shamt_6(self.regs[rs2]);
                 match funct3 {
                     0x0 => {
                         match funct7 {
@@ -281,16 +246,21 @@ impl Cpu {
             }
             0x37 => {
                 //U lui - load imm to register, with << 12
-                self.regs[rd] = (inst & U_IMMEDIATE) as i32 as i64 as u64;
+                self.regs[rd] = get_u_imm(inst);
             }
             0x3b => {
-                let shamt = (self.regs[rs2] & 0x1f) as u32;
+                let shamt = get_shamt_5(self.regs[rs2]);
                 match funct3 {
                     0x0 => {
                         match funct7 {
                             0x0 => {
                                 //R addw - add rs1 with rs2, store to rd
                                 self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]) as i32
+                                    as i64 as u64;
+                            }
+                            0x01 => {
+                                //R mulw - multiply rs1 with rs2, store to rd
+                                self.regs[rd] = self.regs[rs1].wrapping_mul(self.regs[rs2]) as i32
                                     as i64 as u64;
                             }
                             0x20 => {
@@ -383,25 +353,15 @@ impl Cpu {
             0x67 => {
                 //I jalr - jumps to rs1 + imm12
                 let t = self.pc + 4;
-
-                let imm = ((((inst & 0xfff00000) as i32) as i64) >> 20) as u64;
-                let new_pc = (self.regs[rs1].wrapping_add(imm)) & !1;
+                let new_pc = (self.regs[rs1].wrapping_add(get_i_imm(inst))) & !1;
 
                 self.regs[rd] = t;
                 return Ok(new_pc);
             }
             0x6f => {
                 //J jal - jumps to pc + imm20 << 1
-                // imm reordering, check wiki for J order
                 self.regs[rd] = self.pc + 4;
-
-                // imm[20|10:1|11|19:12] = inst[31|30:21|20|19:12]
-                let imm = (((inst & 0x80000000) as i32 as i64 >> 11) as u64) // imm[20]
-                    | (inst & 0xff000) // imm[19:12]
-                    | ((inst >> 9) & 0x800) // imm[11]
-                    | ((inst >> 20) & 0x7fe); // imm[10:1]
-
-                return Ok(self.pc.wrapping_add(imm));
+                return Ok(self.pc.wrapping_add(get_j_imm(inst)));
             }
             _ => return Err(Exept::illegal_instruction(opcode as u64)),
         }
@@ -468,8 +428,22 @@ fn decode_r(inst: u32) -> (u32, usize, usize, u32, usize, u32) {
     );
 }
 
+// SHift AMounT - 5 bytes
+fn get_shamt_5(imm: u64) -> u32 {
+    return (imm & 0x1f) as u32;
+}
+
+// SHift AMounT - 6 bytes
+fn get_shamt_6(imm: u64) -> u32 {
+    return (imm & 0x3f) as u32;
+}
+
+fn get_u_imm(inst: u64) -> u64 {
+    return (inst & U_IMMEDIATE) as i32 as i64 as u64;
+}
+
 fn get_i_imm(inst: u64) -> u64 {
-    return ((inst as i32 as i64) >> 20) as u64;
+    return ((((inst & I_IMMEDIATE) as i32) as i64) >> 20) as u64;
 }
 
 fn get_j_imm(inst: u64) -> u64 {

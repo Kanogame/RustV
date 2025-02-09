@@ -101,10 +101,15 @@ fn run_cpu(code: Vec<u8>, n_clock: usize) -> Result<Cpu, std::io::Error> {
     for _ in 0..n_clock {
         let inst = match cpu.fetch() {
             Ok(inst) => inst,
-            Err(er) => {
-                println!("f{}", er);
-                break;
-            }
+            Err(er) => match er.value {
+                0 => {
+                    println!("program finished its execution and jumped to 0");
+                    break;
+                }
+                _ => {
+                    panic!("{}", er);
+                }
+            },
         };
 
         match cpu.execute(inst) {

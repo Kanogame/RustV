@@ -30,17 +30,21 @@ fn main() -> io::Result<()> {
     loop {
         let inst = match cpu.fetch() {
             Ok(inst) => inst,
-            Err(e) => {
-                panic!("{}", e);
-                break;
-            }
+            Err(e) => match e.value {
+                0 => {
+                    println!("program finished its execution and jumped to 0");
+                    break;
+                }
+                _ => {
+                    panic!("{}", e);
+                }
+            },
         };
 
         match cpu.execute(inst) {
             Ok(next_pc) => cpu.pc = next_pc,
             Err(e) => {
                 panic!("{}", e);
-                break;
             }
         };
     }

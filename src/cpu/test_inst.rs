@@ -262,6 +262,42 @@ fn test_store_load1() {
 }
 
 #[test]
+fn test_func() {
+    let code = "
+main:
+    addi	sp, sp, -8
+	sd	ra, 0(sp)
+    call is_secret_value
+    mv x30, a2
+    xor a2, a2, a2
+    li a0, 0x69
+    call is_secret_value
+    mv x31, a2
+    xor a2, a2, a2
+
+    ld	ra, 0(sp)
+    addi	sp, sp, 8
+    ret
+is_secret_value:
+    addi sp, sp, -8
+    sd ra, 0(sp)
+
+    li a1, 0x69
+    beq a0, a1, .get_sec
+    li a2, 0x3
+    j .ret
+.get_sec: #get_sec
+    li a2, 0x7
+    j .ret
+.ret: #ret
+    ld ra, 0(sp)
+    addi sp, sp, 8
+    ret
+";
+    riscv_asm_test!(code, "test_func", 100, "x30" => 3, "x31" => 7);
+}
+
+#[test]
 fn test_simple_c() {
     riscv_c_test!("./m_tests/simple.c", "test_simple_c", 10000, "a0" => 42);
 }
