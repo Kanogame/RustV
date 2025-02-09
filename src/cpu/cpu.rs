@@ -1,9 +1,10 @@
 use std::usize;
 
-use crate::bus;
 use crate::bus::Bus;
+use crate::csr::*;
 use crate::exept::Exept;
 use crate::param::{DRAM_BASE, DRAM_END};
+use crate::{bus, csr};
 
 const I_IMMEDIATE: u64 = 0xfff0_0000;
 const U_IMMEDIATE: u64 = 0xffff_f000;
@@ -21,6 +22,7 @@ pub struct Cpu {
     // pc register contains the memory address of the next instruction
     pub pc: u64,
     pub bus: bus::Bus,
+    pub csr: csr::Csr,
 }
 
 impl Cpu {
@@ -32,6 +34,7 @@ impl Cpu {
             regs,
             pc: DRAM_BASE,
             bus: Bus::new(code),
+            csr: Csr::new(),
         }
     }
 
@@ -363,6 +366,59 @@ impl Cpu {
                 self.regs[rd] = self.pc + 4;
                 return Ok(self.pc.wrapping_add(get_j_imm(inst)));
             }
+            0x73 => {
+                let csr = get_i_imm(inst) as usize;
+                let zimm = rs1 as u64;
+                match funct3 {
+                    0x1 => {
+                        // csrrw
+                        if rs1 != 0 {
+                            self.regs[rd] = self.csr.load(csr);
+                            self.csr.store(csr, self.regs[rs1]);
+                        }
+                    }
+                    0x2 => {
+                        // csrrs
+                        if rs1 != 0 {
+                            let t = self.csr.load(csr);
+                            self.csr.store(csr, t | self.regs[rs1]);
+                            self.regs[rd] = t;
+                        }
+                    }
+                    0x3 => {
+                        // csrrc
+                        if rs1 != 0 {
+                            let t = self.csr.load(csr);
+                            self.csr.store(csr, t & self.regs[rs1]);
+                            self.regs[rd] = t;
+                        }
+                    }
+                    0x5 => {
+                        // csrrwi
+                        if rs1 != 0 {
+                            self.regs[rd] = self.csr.load(csr);
+                            self.csr.store(csr, zimm);
+                        }
+                    }
+                    0x6 => {
+                        // csrrsi
+                        if rs1 != 0 {
+                            let t = self.csr.load(csr);
+                            self.csr.store(csr, t | zimm);
+                            self.regs[rd] = t;
+                        }
+                    }
+                    0x7 => {
+                        // csrrci
+                        if rs1 != 0 {
+                            let t = self.csr.load(csr);
+                            self.csr.store(csr, t & zimm);
+                            self.regs[rd] = t;
+                        }
+                    }
+                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                }
+            }
             _ => return Err(Exept::illegal_instruction(opcode as u64)),
         }
         Ok(self.pc.wrapping_add(4))
@@ -389,6 +445,24 @@ impl Cpu {
                 }
                 panic!("Invalid register {}", r);
             }
+            "mhartid" => self.csr.load(MHARTID),
+            "mstatus" => self.csr.load(MSTATUS),
+            "mtvec" => self.csr.load(MTVEC),
+            "mepc" => self.csr.load(MEPC),
+            "mcause" => self.csr.load(MCAUSE),
+            "mtval" => self.csr.load(MTVAL),
+            "medeleg" => self.csr.load(MEDELEG),
+            "mscratch" => self.csr.load(MSCRATCH),
+            "MIP" => self.csr.load(MIP),
+            "mcounteren" => self.csr.load(MCOUNTEREN),
+            "sstatus" => self.csr.load(SSTATUS),
+            "stvec" => self.csr.load(STVEC),
+            "sepc" => self.csr.load(SEPC),
+            "scause" => self.csr.load(SCAUSE),
+            "stval" => self.csr.load(STVAL),
+            "sscratch" => self.csr.load(SSCRATCH),
+            "SIP" => self.csr.load(SIP),
+            "SATP" => self.csr.load(SATP),
             _ => panic!("Invalid register {}", r),
         }
     }

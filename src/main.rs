@@ -8,6 +8,7 @@ use cpu::cpu::Cpu;
 
 mod bus;
 mod cpu;
+mod csr;
 mod dram;
 mod exept;
 mod param;
