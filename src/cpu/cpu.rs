@@ -16,11 +16,18 @@ const RVABI: [&str; 32] = [
     "t5", "t6",
 ];
 
+//riscV privilege mode
+type Mode = u64;
+const User: Mode = 0b00;
+const Supervisor: Mode = 0b01;
+const Machine: Mode = 0b11;
+
 pub struct Cpu {
     //RISC-V has 32 registers
     pub regs: [u64; 32],
     // pc register contains the memory address of the next instruction
     pub pc: u64,
+    pub mode: Mode,
     pub bus: bus::Bus,
     pub csr: csr::Csr,
 }
@@ -35,6 +42,7 @@ impl Cpu {
             pc: DRAM_BASE,
             bus: Bus::new(code),
             csr: Csr::new(),
+            mode: Machine,
         }
     }
 
@@ -370,6 +378,41 @@ impl Cpu {
                 let csr = get_i_imm(inst) as usize;
                 let zimm = rs1 as u64;
                 match funct3 {
+                    0x0 => match (rs2, funct7) {
+                        (0x2, 0x8) => {
+                            // sret
+                            let mut sstatus = self.csr.load(SSTATUS);
+                            self.mode = (sstatus & MASK_SPP) >> 8;
+                            let spie = (sstatus & MASK_SPIE) >> 5;
+                            //sie = spie
+                            sstatus = (sstatus & !MASK_SIE) | (spie << 1);
+                            // spie = 1
+                            sstatus = sstatus | MASK_SPIE;
+                            // SPP = 0b00, => U
+                            sstatus &= !MASK_SPP;
+                            self.csr.store(SSTATUS, sstatus);
+                            let new_pc = self.csr.load(SEPC) & !0b11;
+                            return Ok(new_pc);
+                        }
+                        (0x2, 0x18) => {
+                            // mret
+                            let mut mstatus = self.csr.load(MSTATUS);
+                            self.mode = (mstatus & MASK_MPP) >> 11;
+                            let mpie = (mstatus & MASK_MPIE) >> 7;
+                            //mie = mpie
+                            mstatus = (mstatus & !MASK_MIE) | (mpie << 3);
+                            // mpie = 1
+                            mstatus = mstatus | MASK_MPIE;
+                            // MPP = 0b00, => U
+                            mstatus &= !MASK_MPP;
+                            // If MPP != M, sets MPRV=0
+                            mstatus &= !MASK_MPRV;
+                            self.csr.store(SSTATUS, mstatus);
+                            let new_pc = self.csr.load(MEPC) & !0b11;
+                            return Ok(new_pc);
+                        }
+                        _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                    },
                     0x1 => {
                         // csrrw
                         if rs1 != 0 {
