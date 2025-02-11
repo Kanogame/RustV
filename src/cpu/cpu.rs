@@ -1,3 +1,4 @@
+use std::cmp::{max, min};
 use std::usize;
 
 use crate::bus::Bus;
@@ -191,6 +192,71 @@ impl Cpu {
                     0x1 => self.store(addr, 16, self.regs[rs2])?, // sh
                     0x2 => self.store(addr, 32, self.regs[rs2])?, // sw
                     0x3 => self.store(addr, 64, self.regs[rs2])?, // sd
+                    _ => err_illegal_instruction!(inst),
+                }
+            }
+            0x21 => {
+                let funct5 = funct7 >> 2;
+                match (funct3, funct5) {
+                    (0x2, 0x0) => {
+                        // amoadd.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(
+                            self.regs[rs1],
+                            32,
+                            self.regs[rs2].wrapping_add(self.regs[rd]),
+                        )?;
+                    }
+                    (0x2, 0x1) => {
+                        // amoswap.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, self.regs[rs2])?;
+                    }
+                    (0x2, 0x2) => {
+                        // lr.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                    }
+                    (0x2, 0x3) => {
+                        // sc.w, no condition
+                        self.store(self.regs[rs1], 32, self.regs[rs2])?;
+                    }
+                    (0x2, 0x4) => {
+                        // amoxor.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, self.regs[rs2] ^ self.regs[rd])?;
+                    }
+                    (0x2, 0x8) => {
+                        // amoor.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, self.regs[rs2] | self.regs[rd])?;
+                    }
+                    (0x2, 0xc) => {
+                        // amoand.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, self.regs[rs2] & self.regs[rd])?;
+                    }
+                    (0x2, 0x14) => {
+                        // amomax.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(
+                            self.regs[rs1],
+                            32,
+                            max(self.regs[rs2] as i64, self.regs[rd] as i64) as u64,
+                        )?;
+                    }
+                    (0x2, 0x1c) => {
+                        // amomaxu.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, max(self.regs[rs2], self.regs[rd]))?;
+                    }
+                    (0x3, 0x2) => {
+                        // lr.d
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                    }
+                    (0x3, 0x3) => {
+                        // sc.d, no condition
+                        self.store(self.regs[rs1], 64, self.regs[rs2])?;
+                    }
                     _ => err_illegal_instruction!(inst),
                 }
             }
