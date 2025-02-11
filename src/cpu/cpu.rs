@@ -1,10 +1,10 @@
 use std::usize;
 
 use crate::bus::Bus;
-use crate::csr::*;
 use crate::exept::Exept;
 use crate::param::{DRAM_BASE, DRAM_END};
-use crate::{bus, csr};
+use crate::{bus, csr, sign_extend};
+use crate::{csr::*, err_illegal_instruction};
 
 const I_IMMEDIATE: u64 = 0xfff0_0000;
 const U_IMMEDIATE: u64 = 0xffff_f000;
@@ -75,14 +75,14 @@ impl Cpu {
                 //I load value from memory to rd
                 let addr = self.regs[rs1].wrapping_add(get_i_imm(inst));
                 self.regs[rd] = match funct3 {
-                    0x0 => self.load(addr, 8)? as i8 as i64 as u64, // lb
-                    0x1 => self.load(addr, 16)? as i16 as i64 as u64, // lh
-                    0x2 => self.load(addr, 32)? as i32 as i64 as u64, // lw
+                    0x0 => sign_extend!(i8, self.load(addr, 8)?),   // lb
+                    0x1 => sign_extend!(i16, self.load(addr, 16)?), // lh
+                    0x2 => sign_extend!(i32, self.load(addr, 32)?), // lw
                     0x3 => self.load(addr, 64)?,                    //ld
                     0x4 => self.load(addr, 8)?,                     // lbu
                     0x5 => self.load(addr, 16)?,                    // lhu
                     0x6 => self.load(addr, 32)?,                    // lwu
-                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                    _ => err_illegal_instruction!(inst),
                 }
             }
             0x13 => {
@@ -128,7 +128,7 @@ impl Cpu {
                                 //S (without rs2) srai - rd = rs1 >> rs2 (arithmetic)
                                 self.regs[rd] = (self.regs[rs1] as i64).wrapping_shr(shamt) as u64;
                             }
-                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                            _ => err_illegal_instruction!(inst),
                         }
                     }
                     0x6 => {
@@ -140,7 +140,7 @@ impl Cpu {
                         self.regs[rd] = self.regs[rs1] & imm;
                     }
 
-                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                    _ => err_illegal_instruction!(inst),
                 }
             }
             0x17 => {
@@ -154,29 +154,33 @@ impl Cpu {
                 match funct3 {
                     0x0 => {
                         //I addiw - add rs1 with immediate, store to rd
-                        self.regs[rd] = self.regs[rs1].wrapping_add(imm) as i32 as i64 as u64;
+                        self.regs[rd] = sign_extend!(i32, self.regs[rs1].wrapping_add(imm));
                     }
                     0x1 => {
                         //S (without rs2) slliw - rd = rs1 << rs2
-                        self.regs[rd] = (self.regs[rs1].wrapping_shl(shamt)) as i32 as i64 as u64;
+                        self.regs[rd] = sign_extend!(i32, (self.regs[rs1].wrapping_shl(shamt)));
                     }
                     0x5 => {
                         match funct7 {
                             0x0 => {
                                 //S (without rs2) srliw - rd = rs1 >> rs2
-                                self.regs[rd] = ((self.regs[rs1] as u32).wrapping_shr(shamt)) as i32
-                                    as i64 as u64;
+                                self.regs[rd] = sign_extend!(
+                                    i32,
+                                    ((self.regs[rs1] as u32).wrapping_shr(shamt))
+                                );
                             }
                             0x20 => {
                                 //S (without rs2) sraiw - rd = rs1 >> rs2 (arithmetic)
-                                self.regs[rd] =
-                                    ((self.regs[rs1] as i32).wrapping_shr(shamt)) as i64 as u64;
+                                self.regs[rd] = sign_extend!(
+                                    i32,
+                                    ((self.regs[rs1] as i32).wrapping_shr(shamt))
+                                );
                             }
-                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                            _ => err_illegal_instruction!(inst),
                         }
                     }
 
-                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                    _ => err_illegal_instruction!(inst),
                 }
             }
             0x23 => {
@@ -187,7 +191,7 @@ impl Cpu {
                     0x1 => self.store(addr, 16, self.regs[rs2])?, // sh
                     0x2 => self.store(addr, 32, self.regs[rs2])?, // sw
                     0x3 => self.store(addr, 64, self.regs[rs2])?, // sd
-                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                    _ => err_illegal_instruction!(inst),
                 }
             }
             0x33 => {
@@ -203,7 +207,7 @@ impl Cpu {
                                 //R sub - sub rs1 with rs2, store to rd
                                 self.regs[rd] = self.regs[rs1].wrapping_sub(self.regs[rs2]);
                             }
-                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                            _ => err_illegal_instruction!(inst),
                         }
                     }
                     0x1 => {
@@ -241,7 +245,7 @@ impl Cpu {
                                 self.regs[rd] =
                                     ((self.regs[rs1] as i64).wrapping_shr(shamt)) as u64;
                             }
-                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                            _ => err_illegal_instruction!(inst),
                         }
                     }
                     0x6 => {
@@ -252,7 +256,7 @@ impl Cpu {
                         //R and - rd = rs1 & rs2
                         self.regs[rd] = self.regs[rs1] & self.regs[rs2];
                     }
-                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                    _ => err_illegal_instruction!(inst),
                 }
             }
             0x37 => {
@@ -266,39 +270,42 @@ impl Cpu {
                         match funct7 {
                             0x0 => {
                                 //R addw - add rs1 with rs2, store to rd
-                                self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]) as i32
-                                    as i64 as u64;
+                                self.regs[rd] =
+                                    sign_extend!(i32, self.regs[rs1].wrapping_add(self.regs[rs2]));
                             }
                             0x01 => {
                                 //R mulw - multiply rs1 with rs2, store to rd
-                                self.regs[rd] = self.regs[rs1].wrapping_mul(self.regs[rs2]) as i32
-                                    as i64 as u64;
+                                self.regs[rd] =
+                                    sign_extend!(i32, self.regs[rs1].wrapping_mul(self.regs[rs2]));
                             }
                             0x20 => {
                                 //R subw - sub rs1 with rs2, store to rd
                                 self.regs[rd] =
-                                    (self.regs[rs1].wrapping_sub(self.regs[rs2]) as i32) as u64;
+                                    sign_extend!(i32, self.regs[rs1].wrapping_sub(self.regs[rs2]));
                             }
-                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                            _ => err_illegal_instruction!(inst),
                         }
                     }
                     0x1 => {
                         //R sllw - rd = rs1 << rs2
-                        self.regs[rd] = (self.regs[rs1] as u32).wrapping_shl(shamt) as i32 as u64;
+                        self.regs[rd] =
+                            sign_extend!(i32, (self.regs[rs1] as u32).wrapping_shl(shamt));
                     }
                     0x5 => {
                         match funct7 {
                             0x0 => {
                                 //R srlw (unsigned) - rd = rs1 >> rs2
                                 self.regs[rd] =
-                                    (self.regs[rs1] as u32).wrapping_shr(shamt) as i32 as u64;
+                                    sign_extend!(i32, (self.regs[rs1] as u32).wrapping_shr(shamt));
                             }
                             0x20 => {
                                 //R sraw - rd = rs1 >> rs2
-                                self.regs[rd] =
-                                    ((self.regs[rs1] as i32).wrapping_shr(shamt)) as u64;
+                                self.regs[rd] = sign_extend!(
+                                    i32,
+                                    ((self.regs[rs1] as i32).wrapping_shr(shamt))
+                                );
                             }
-                            _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                            _ => err_illegal_instruction!(inst),
                         }
                     }
                     0x6 => {
@@ -309,7 +316,7 @@ impl Cpu {
                         //R and - rd = rs1 & rs2
                         self.regs[rd] = self.regs[rs1] & self.regs[rs2];
                     }
-                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                    _ => err_illegal_instruction!(inst),
                 }
             }
             0x63 => {
@@ -358,15 +365,15 @@ impl Cpu {
                             return Ok(self.pc.wrapping_add(imm));
                         }
                     }
-                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                    _ => err_illegal_instruction!(inst),
                 }
             }
             0x67 => {
                 //I jalr - jumps to rs1 + imm12
-                let t = self.pc + 4;
+                // new var cause rd can be equal rs1
                 let new_pc = (self.regs[rs1].wrapping_add(get_i_imm(inst))) & !1;
 
-                self.regs[rd] = t;
+                self.regs[rd] = self.pc + 4;
                 return Ok(new_pc);
             }
             0x6f => {
@@ -411,7 +418,7 @@ impl Cpu {
                             let new_pc = self.csr.load(MEPC) & !0b11;
                             return Ok(new_pc);
                         }
-                        _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                        _ => err_illegal_instruction!(inst),
                     },
                     0x1 => {
                         // csrrw
@@ -459,10 +466,10 @@ impl Cpu {
                             self.regs[rd] = t;
                         }
                     }
-                    _ => return Err(Exept::illegal_instruction(opcode as u64)),
+                    _ => err_illegal_instruction!(inst),
                 }
             }
-            _ => return Err(Exept::illegal_instruction(opcode as u64)),
+            _ => err_illegal_instruction!(inst),
         }
         Ok(self.pc.wrapping_add(4))
     }

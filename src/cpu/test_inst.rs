@@ -241,6 +241,14 @@ srai x3, x1, 1
 }
 
 #[test]
+fn test_div() {
+    let code = "addi x3, x3, 4
+mul x0, x0, x0
+";
+    riscv_asm_test!(code, "test_div", 3, "x3" => 2);
+}
+
+#[test]
 fn test_srli() {
     let code = "addi x3, x3, 4
 srli x3, x3, 1
