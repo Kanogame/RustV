@@ -235,6 +235,15 @@ impl Cpu {
                         self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
                         self.store(self.regs[rs1], 32, self.regs[rs2] & self.regs[rd])?;
                     }
+                    (0x2, 0x10) => {
+                        // amomin.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(
+                            self.regs[rs1],
+                            32,
+                            min(self.regs[rs2] as i64, self.regs[rd] as i64) as u64,
+                        )?;
+                    }
                     (0x2, 0x14) => {
                         // amomax.w
                         self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
@@ -244,10 +253,20 @@ impl Cpu {
                             max(self.regs[rs2] as i64, self.regs[rd] as i64) as u64,
                         )?;
                     }
+                    (0x2, 0x18) => {
+                        // amomax.w
+                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, min(self.regs[rs2], self.regs[rd]))?;
+                    }
                     (0x2, 0x1c) => {
                         // amomaxu.w
                         self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
                         self.store(self.regs[rs1], 32, max(self.regs[rs2], self.regs[rd]))?;
+                    }
+                    (0x3, 0x1) => {
+                        // amoswap.w
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, self.regs[rs2])?;
                     }
                     (0x3, 0x2) => {
                         // lr.d
@@ -256,6 +275,49 @@ impl Cpu {
                     (0x3, 0x3) => {
                         // sc.d, no condition
                         self.store(self.regs[rs1], 64, self.regs[rs2])?;
+                    }
+                    (0x3, 0x4) => {
+                        // amoxor.w
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, self.regs[rs2] ^ self.regs[rd])?;
+                    }
+                    (0x3, 0x8) => {
+                        // amoor.w
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, self.regs[rs2] | self.regs[rd])?;
+                    }
+                    (0x3, 0xc) => {
+                        // amoand.w
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, self.regs[rs2] & self.regs[rd])?;
+                    }
+                    (0x3, 0x10) => {
+                        // amomin.w
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        self.store(
+                            self.regs[rs1],
+                            64,
+                            min(self.regs[rs2] as i64, self.regs[rd] as i64) as u64,
+                        )?;
+                    }
+                    (0x3, 0x14) => {
+                        // amomax.w
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        self.store(
+                            self.regs[rs1],
+                            64,
+                            max(self.regs[rs2] as i64, self.regs[rd] as i64) as u64,
+                        )?;
+                    }
+                    (0x3, 0x18) => {
+                        // amomax.w
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, min(self.regs[rs2], self.regs[rd]))?;
+                    }
+                    (0x3, 0x1c) => {
+                        // amomaxu.w
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, max(self.regs[rs2], self.regs[rd]))?;
                     }
                     _ => err_illegal_instruction!(inst),
                 }
