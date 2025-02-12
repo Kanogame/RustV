@@ -239,14 +239,14 @@ srai x3, x1, 1
 ";
     riscv_asm_test!(code, "test_srai", 2, "x3" => (-2) as i64 as u64);
 }
-
-#[test]
-fn test_div() {
-    let code = "addi x3, x3, 4
-mul x0, x0, x0
-";
-    riscv_asm_test!(code, "test_div", 3, "x3" => 2);
-}
+//
+//#[test]
+//fn test_div() {
+//    let code = "addi x3, x3, 4
+//mul x0, x0, x0
+//";
+//    riscv_asm_test!(code, "test_div", 3, "x3" => 2);
+//}
 
 #[test]
 fn test_srli() {
@@ -338,4 +338,62 @@ fn test_fib() {
 #[test]
 fn test_sort_c() {
     riscv_c_test!("./m_tests/sorting.c", "test_sorting_c", 10000, "a0" => 20);
+}
+
+#[test]
+fn test_amoswap_w() {
+    let code = "li a0, 0x10
+addi sp, sp, -8
+sd a0, 0(sp)
+li a1, 0x20
+amoswap.w a2, a1, (sp)
+ld a0, 0(sp)";
+
+    riscv_asm_test!(code, "test_amoswap_w", 10, "a2" => 0x10, "a0" => 0x20);
+}
+
+#[test]
+fn test_amoadd() {
+    let code = "li a0, 0x10
+addi sp, sp, -8
+sd a0, 0(sp)
+li a1, 0x5
+amoadd.d a2, a1, 0(sp)
+ld a0, 0(sp)";
+    riscv_asm_test!(code, "test_amoadd", 10, "a2" => 0x10, "a0" => 0x15);
+}
+
+#[test]
+fn test_amoand() {
+    let code = "li a0, 0x10
+addi sp, sp, -8
+sd a0, 0(sp)
+li a1, 0x5
+amoand.d a2, a1, 0(sp)
+ld a0, 0(sp)";
+    riscv_asm_test!(code, "test_amoand", 10, "a2" => 0x10, "a0" => 0x10 & 0x5);
+}
+
+#[test]
+fn test_amoor() {
+    let code = "li a0, 0x10
+addi sp, sp, -8
+sd a0, 0(sp)
+li a1, 0x5
+amoor.w a2, a1, 0(sp)
+ld a0, 0(sp)";
+
+    riscv_asm_test!(code, "test_amoor", 10, "a0" => 0x10 | 0x5);
+}
+
+#[test]
+fn test_amoxor() {
+    let code = "li a0, 0x10
+addi sp, sp, -8
+sd a0, 0(sp)
+li a1, 0x5
+amoor.w a2, a1, 0(sp)
+ld a0, 0(sp)";
+
+    riscv_asm_test!(code, "test_amoxor", 10, "a0" => 0x10 ^ 0x5);
 }

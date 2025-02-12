@@ -103,7 +103,7 @@ fn run_cpu(code: Vec<u8>, n_clock: usize) -> Result<Cpu, std::io::Error> {
             Ok(inst) => inst,
             Err(er) => match er.value {
                 0 => {
-                    println!("program finished its execution and jumped to 0");
+                    println!("program finished its execution and/or jumped to 0");
                     break;
                 }
                 _ => {

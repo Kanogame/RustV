@@ -195,7 +195,7 @@ impl Cpu {
                     _ => err_illegal_instruction!(inst),
                 }
             }
-            0x21 => {
+            0x2f => {
                 let funct5 = funct7 >> 2;
                 match (funct3, funct5) {
                     (0x2, 0x0) => {
@@ -262,6 +262,15 @@ impl Cpu {
                         // amomaxu.w
                         self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
                         self.store(self.regs[rs1], 32, max(self.regs[rs2], self.regs[rd]))?;
+                    }
+                    (0x3, 0x0) => {
+                        // amoadd.d
+                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        self.store(
+                            self.regs[rs1],
+                            64,
+                            self.regs[rs2].wrapping_add(self.regs[rd]),
+                        )?;
                     }
                     (0x3, 0x1) => {
                         // amoswap.w
