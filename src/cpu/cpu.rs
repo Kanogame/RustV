@@ -333,25 +333,30 @@ impl Cpu {
             }
             0x33 => {
                 let shamt = get_shamt_6(self.regs[rs2]);
-                match funct3 {
-                    0x0 => {
-                        match funct7 {
-                            0x0 => {
-                                //R add - add rs1 with rs2, store to rd
-                                self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]);
-                            }
-                            0x20 => {
-                                //R sub - sub rs1 with rs2, store to rd
-                                self.regs[rd] = self.regs[rs1].wrapping_sub(self.regs[rs2]);
-                            }
-                            _ => err_illegal_instruction!(inst),
-                        }
+                match (funct3, funct7) {
+                    (0x0, 0x0) => {
+                        //R add - add rs1 with rs2, store to rd
+                        self.regs[rd] = self.regs[rs1].wrapping_add(self.regs[rs2]);
                     }
-                    0x1 => {
+                    (0x0, 0x1) => {
+                        // R mul - multiply rs1 by rs2, store to rd
+                        self.regs[rd] = self.regs[rs1].wrapping_mul(self.regs[rs2]);
+                    }
+                    (0x0, 0x20) => {
+                        //R sub - sub rs1 with rs2, store to rd
+                        self.regs[rd] = self.regs[rs1].wrapping_sub(self.regs[rs2]);
+                    }
+                    (0x1, 0x0) => {
                         //R sll - rd = rs1 << rs2
                         self.regs[rd] = self.regs[rs1].wrapping_shl(shamt);
                     }
-                    0x2 => {
+                    (0x1, 0x1) => {
+                        // R mulh - multiply rs1 by rs2 (both signed) as 128, store to rd upper 64
+                        let val: i128 = (self.regs[rs1] as i64 as i128)
+                            .wrapping_mul(self.regs[rs2] as i64 as i128);
+                        self.regs[rd] = (val >> 64) as u64;
+                    }
+                    (0x2, 0x0) => {
                         //R slt - if rs1 < rs2, rd = 1, else rd = 0
                         if (self.regs[rs1] as i64) < (self.regs[rs2] as i64) {
                             self.regs[rd] = 1;
@@ -359,7 +364,13 @@ impl Cpu {
                             self.regs[rd] = 0;
                         }
                     }
-                    0x3 => {
+                    (0x2, 0x1) => {
+                        // R mulhsu - multiply rs1(s) by rs2(u) as 128, store to rd upper 64
+                        let val: i128 =
+                            (self.regs[rs1] as i128).wrapping_mul(self.regs[rs2] as u64 as i128);
+                        self.regs[rd] = (val >> 64) as u64;
+                    }
+                    (0x3, 0x0) => {
                         //R sltu (unsigned) - if rs1 < rs2, rd = 1, else rd = 0
                         if self.regs[rs1] < self.regs[rs2] {
                             self.regs[rd] = 1;
@@ -367,31 +378,65 @@ impl Cpu {
                             self.regs[rd] = 0;
                         }
                     }
-                    0x4 => {
+                    (0x3, 0x1) => {
+                        // R mulhu - multiply rs1 by rs2 (both unsigned) as 128, store to rd upper 64
+                        let val: u128 =
+                            (self.regs[rs1] as u128).wrapping_mul(self.regs[rs2] as u128);
+                        self.regs[rd] = (val >> 64) as u64;
+                    }
+                    (0x4, 0x0) => {
                         //R xor - rd = rs1 ^ rs2
                         self.regs[rd] = self.regs[rs1] ^ self.regs[rs2];
                     }
-                    0x5 => {
-                        match funct7 {
-                            0x0 => {
-                                //R srl (unsigned) - rd = rs1 >> rs2
-                                self.regs[rd] = self.regs[rs1].wrapping_shr(shamt);
-                            }
-                            0x20 => {
-                                //R sra - rd = rs1 >> rs2
-                                self.regs[rd] =
-                                    ((self.regs[rs1] as i64).wrapping_shr(shamt)) as u64;
-                            }
-                            _ => err_illegal_instruction!(inst),
+                    (0x4, 0x1) => {
+                        //R div - divide rs1 by rs2 (both signed), store to rd
+                        if self.regs[rs2] == 0 {
+                            self.regs[rd] = -1 as i64 as u64;
+                        } else {
+                            self.regs[rd] =
+                                (self.regs[rs1] as i64).wrapping_div(self.regs[rs2] as i64) as u64;
                         }
                     }
-                    0x6 => {
+                    (0x5, 0x0) => {
+                        //R srl (unsigned) - rd = rs1 >> rs2
+                        self.regs[rd] = self.regs[rs1].wrapping_shr(shamt);
+                    }
+                    (0x5, 0x1) => {
+                        //R divu - divide rs1 by rs2 (both unsigned), store to rd
+                        if self.regs[rs2] == 0 {
+                            self.regs[rd] = -1 as i64 as u64;
+                        } else {
+                            self.regs[rd] = (self.regs[rs1]).wrapping_div(self.regs[rs2]);
+                        }
+                    }
+                    (0x5, 0x20) => {
+                        //R sra - rd = rs1 >> rs2
+                        self.regs[rd] = ((self.regs[rs1] as i64).wrapping_shr(shamt)) as u64;
+                    }
+                    (0x6, 0x0) => {
                         //R or - rd = rs1 | rs2
                         self.regs[rd] = self.regs[rs1] | self.regs[rs2];
                     }
-                    0x7 => {
+                    (0x6, 0x1) => {
+                        //R rem - signed remainder of div: rs1 by rs2 (both signed), store to rd
+                        if self.regs[rs2] == 0 {
+                            self.regs[rd] = self.regs[rs1];
+                        } else {
+                            self.regs[rd] =
+                                (self.regs[rs1] as i64).wrapping_rem(self.regs[rs2] as i64) as u64;
+                        }
+                    }
+                    (0x7, 0x0) => {
                         //R and - rd = rs1 & rs2
                         self.regs[rd] = self.regs[rs1] & self.regs[rs2];
+                    }
+                    (0x7, 0x1) => {
+                        //R remu - unsigned remainder of divu: rs1 by rs2 (both unsigned), store to rd
+                        if self.regs[rs2] == 0 {
+                            self.regs[rd] = self.regs[rs1];
+                        } else {
+                            self.regs[rd] = self.regs[rs1].wrapping_rem(self.regs[rs2]);
+                        }
                     }
                     _ => err_illegal_instruction!(inst),
                 }
@@ -402,56 +447,90 @@ impl Cpu {
             }
             0x3b => {
                 let shamt = get_shamt_5(self.regs[rs2]);
-                match funct3 {
-                    0x0 => {
-                        match funct7 {
-                            0x0 => {
-                                //R addw - add rs1 with rs2, store to rd
-                                self.regs[rd] =
-                                    sign_extend!(i32, self.regs[rs1].wrapping_add(self.regs[rs2]));
-                            }
-                            0x01 => {
-                                //R mulw - multiply rs1 with rs2, store to rd
-                                self.regs[rd] =
-                                    sign_extend!(i32, self.regs[rs1].wrapping_mul(self.regs[rs2]));
-                            }
-                            0x20 => {
-                                //R subw - sub rs1 with rs2, store to rd
-                                self.regs[rd] =
-                                    sign_extend!(i32, self.regs[rs1].wrapping_sub(self.regs[rs2]));
-                            }
-                            _ => err_illegal_instruction!(inst),
-                        }
+                match (funct3, funct7) {
+                    (0x0, 0x0) => {
+                        //R addw - add rs1 with rs2, store to rd
+                        self.regs[rd] =
+                            sign_extend!(i32, self.regs[rs1].wrapping_add(self.regs[rs2]));
                     }
-                    0x1 => {
+                    (0x0, 0x01) => {
+                        //R mulw - multiply rs1 with rs2, store to rd
+                        self.regs[rd] = sign_extend!(
+                            i32,
+                            (self.regs[rs1] as i32).wrapping_mul(self.regs[rs2] as i32)
+                        );
+                    }
+                    (0x0, 0x20) => {
+                        //R subw - sub rs1 with rs2, store to rd
+                        self.regs[rd] =
+                            sign_extend!(i32, self.regs[rs1].wrapping_sub(self.regs[rs2]));
+                    }
+                    (0x1, 0x0) => {
                         //R sllw - rd = rs1 << rs2
                         self.regs[rd] =
                             sign_extend!(i32, (self.regs[rs1] as u32).wrapping_shl(shamt));
                     }
-                    0x5 => {
-                        match funct7 {
-                            0x0 => {
-                                //R srlw (unsigned) - rd = rs1 >> rs2
-                                self.regs[rd] =
-                                    sign_extend!(i32, (self.regs[rs1] as u32).wrapping_shr(shamt));
-                            }
-                            0x20 => {
-                                //R sraw - rd = rs1 >> rs2
-                                self.regs[rd] = sign_extend!(
-                                    i32,
-                                    ((self.regs[rs1] as i32).wrapping_shr(shamt))
-                                );
-                            }
-                            _ => err_illegal_instruction!(inst),
+                    (0x4, 0x01) => {
+                        //R divw - divide rs1 with rs2, store to rd
+                        if self.regs[rs2] as i32 == 0 {
+                            self.regs[rd] = -1 as i64 as u64;
+                        } else {
+                            self.regs[rd] = sign_extend!(
+                                i32,
+                                (self.regs[rs1] as i32).wrapping_div(self.regs[rs2] as i32)
+                            );
                         }
                     }
-                    0x6 => {
+                    (0x5, 0x0) => {
+                        //R srlw (unsigned) - rd = rs1 >> rs2
+                        self.regs[rd] =
+                            sign_extend!(i32, (self.regs[rs1] as u32).wrapping_shr(shamt));
+                    }
+                    (0x5, 0x01) => {
+                        //R divuw - divide (unsigned) rs1 with rs2, store to rd
+                        if self.regs[rs2] as i32 == 0 {
+                            self.regs[rd] = -1 as i64 as u64;
+                        } else {
+                            self.regs[rd] = sign_extend!(
+                                i32,
+                                (self.regs[rs1] as u32).wrapping_div(self.regs[rs2] as u32)
+                            );
+                        }
+                    }
+                    (0x5, 0x20) => {
+                        //R sraw - rd = rs1 >> rs2
+                        self.regs[rd] =
+                            sign_extend!(i32, ((self.regs[rs1] as i32).wrapping_shr(shamt)));
+                    }
+                    (0x6, 0x0) => {
                         //R or - rd = rs1 | rs2
                         self.regs[rd] = self.regs[rs1] | self.regs[rs2];
                     }
-                    0x7 => {
+                    (0x6, 0x1) => {
+                        //R remw - reminder of signed divw: rs1 with rs2, store to rd
+                        if self.regs[rs2] as i32 == 0 {
+                            self.regs[rd] = sign_extend!(i32, self.regs[rs1]);
+                        } else {
+                            self.regs[rd] = sign_extend!(
+                                i32,
+                                (self.regs[rs1] as i32).wrapping_rem(self.regs[rs2] as i32)
+                            );
+                        }
+                    }
+                    (0x7, 0x0) => {
                         //R and - rd = rs1 & rs2
                         self.regs[rd] = self.regs[rs1] & self.regs[rs2];
+                    }
+                    (0x7, 0x1) => {
+                        //R remuw - reminder of unsigned divw: rs1 with rs2, store to rd
+                        if self.regs[rs2] as i32 == 0 {
+                            self.regs[rd] = sign_extend!(i32, self.regs[rs1]);
+                        } else {
+                            self.regs[rd] = sign_extend!(
+                                i32,
+                                (self.regs[rs1] as u32).wrapping_rem(self.regs[rs2] as u32)
+                            );
+                        }
                     }
                     _ => err_illegal_instruction!(inst),
                 }
