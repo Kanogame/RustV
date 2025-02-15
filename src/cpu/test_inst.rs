@@ -239,14 +239,6 @@ srai x3, x1, 1
 ";
     riscv_asm_test!(code, "test_srai", 2, "x3" => (-2) as i64 as u64);
 }
-//
-//#[test]
-//fn test_div() {
-//    let code = "addi x3, x3, 4
-//mul x0, x0, x0
-//";
-//    riscv_asm_test!(code, "test_div", 3, "x3" => 2);
-//}
 
 #[test]
 fn test_srli() {
@@ -396,4 +388,123 @@ amoor.w a2, a1, 0(sp)
 ld a0, 0(sp)";
 
     riscv_asm_test!(code, "test_amoxor", 10, "a0" => 0x10 ^ 0x5);
+}
+
+#[test]
+fn test_mulhu() {
+    let code = "li a0, 0x7fffffffffffffff
+li a1, 0x3e8
+mulhu a2, a1, a0
+";
+
+    riscv_asm_test!(code, "test_mulhu", 10, "a2" => 499);
+}
+
+#[test]
+fn test_mulh() {
+    let code = "li a0, -0x1
+li a1, 0x3e8
+mulh a2, a1, a0
+";
+
+    riscv_asm_test!(code, "test_mulh", 10, "a2" => (-1 as i64 as u64));
+}
+
+#[test]
+fn test_rem_positive() {
+    let code = "addi a0, x0, 10
+        addi a1, x0, 3
+        rem a2, a0, a1
+    ";
+    riscv_asm_test!(code, "test_rem_positive", 10, "a2" => 1);
+}
+
+#[test]
+fn test_rem_negative() {
+    let code = "addi a0, x0, -10
+addi a1, x0, 3
+rem a2, a0, a1
+    ";
+    riscv_asm_test!(code, "test_rem_negative", 10, "a2" => (-1 as i64 as u64));
+}
+
+#[test]
+fn test_remu() {
+    let code = "addi a0, x0, 10
+addi a1, x0, 3
+remu a2, a0, a1    
+    ";
+    riscv_asm_test!(code, "test_remu", 10, "a2" => 1);
+}
+
+#[test]
+fn test_div_positive() {
+    let code = "li a0, 10
+li a1, 3
+div a2, a0, a1
+    ";
+    riscv_asm_test!(code, "test_div_positive", 10, "a2" => 3);
+}
+
+#[test]
+fn test_div_negative() {
+    let code = "li a0, -10
+li a1, 3
+div a2, a0, a1
+    ";
+    riscv_asm_test!(code, "test_div_negative", 10, "a2" => -3 as i64 as u64);
+}
+
+#[test]
+fn test_divu() {
+    let code = "li a0, 10
+li a1, 3
+divu a2, a0, a1
+    ";
+    riscv_asm_test!(code, "test_divu", 10, "a2" => 3);
+}
+
+#[test]
+fn test_divw_divisor_zero() {
+    let code = "li a0, 123
+li a1, 0
+divw a2, a0, a1
+";
+    riscv_asm_test!(code, "test_divw_divisor_zero", 10, "a2" => -1 as i64 as u64);
+}
+
+#[test]
+fn test_divw_overflow() {
+    let code = "li a0, 0x80000000
+li a1, -1
+divw a2, a0, a1
+";
+    riscv_asm_test!(code, "test_divw_overflow", 10, "a2" => 0x80000000 as u32 as i32 as i64 as u64);
+}
+
+#[test]
+fn test_mulw_minus_one() {
+    let code = "li a0, -1
+li a1, -1
+mulw a2, a0, a1
+";
+    riscv_asm_test!(code, "test_mulw_minus_one", 10, "a2" => 1);
+}
+
+#[test]
+fn test_remw_divisor_zero() {
+    let code = "li a0, 0x80000000
+li a1, 0
+remw a2, a0, a1
+";
+    riscv_asm_test!(code, "test_remw_divisor_zero", 10, "a2" => 0x80000000 as u32 as i32 as i64 as u64);
+}
+
+#[test]
+fn test_remw_overflow_division() {
+    let code = "li a0, 0x80000000
+li a1, -1
+remw a2, a0, a1
+";
+    riscv_asm_test!(code, "test_remw_overflow_division", 10, "a2" => 0);
 }
