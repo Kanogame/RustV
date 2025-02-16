@@ -311,7 +311,6 @@ fn test_csrs1() {
         csrrsi zero, stvec, 5
         csrrwi zero, sepc, 6
         csrrci zero, sepc, 0 
-        ret
     ";
     riscv_asm_test!(code, "test_csrs1", 20, "mstatus" => 1, "mtvec" => 2, "mepc" => 3,
                                         "sstatus" => 0, "stvec" => 5, "sepc" => 6);

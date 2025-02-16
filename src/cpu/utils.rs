@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! err_illegal_instruction {
     ($inst: expr) => {
-        return Err(Exept::illegal_instruction($inst))
+        return Err(Exception::IllegalInstruction($inst))
     };
 }
 

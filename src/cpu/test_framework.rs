@@ -2,12 +2,11 @@ use std::{
     fs::File,
     io::{Read, Write},
     process::Command,
-    str::Bytes,
 };
 
 use crate::cpu::cpu::Cpu;
-const test_folder: &str = "tests/";
-const binary_folder: &str = "tests/target/";
+const TEST_FOLDER: &str = "tests/";
+const BINARY_FOLDER: &str = "tests/target/";
 
 //clang -S source -nostdlib -march=rv64i -mabi=lp64 -mno-relax
 //add support for folders
@@ -60,12 +59,12 @@ fn generate_rv_bin(source: &str, dest: &str) {
 }
 
 // generate riscv binary from asm, run it for n_clocks
-pub fn rv_asm_helper(code: &str, testname: &str, n_clock: usize) -> Result<Cpu, std::io::Error> {
-    let asm_path = test_folder.to_owned() + testname + ".s";
+pub fn rv_asm_helper(code: &str, testname: &str, n_clock: i64) -> Result<Cpu, std::io::Error> {
+    let asm_path = TEST_FOLDER.to_owned() + testname + ".s";
     let mut file = File::create(&asm_path)?;
 
-    let binary_path = binary_folder.to_owned() + testname;
-    let final_path = binary_folder.to_owned() + testname + ".bin";
+    let binary_path = BINARY_FOLDER.to_owned() + testname;
+    let final_path = BINARY_FOLDER.to_owned() + testname + ".bin";
     file.write(&code.as_bytes())?;
     generate_rv_obj(&asm_path, &binary_path);
     generate_rv_bin(&binary_path, &final_path);
@@ -77,14 +76,14 @@ pub fn rv_asm_helper(code: &str, testname: &str, n_clock: usize) -> Result<Cpu, 
 }
 
 // generate riscv binary from C, run it for n_clocks
-pub fn rv_c_helper(path: &str, testname: &str, n_clock: usize) -> Result<Cpu, std::io::Error> {
+pub fn rv_c_helper(path: &str, testname: &str, n_clock: i64) -> Result<Cpu, std::io::Error> {
     let c_path = path;
 
-    let asm_path = test_folder.to_owned() + testname + ".s";
+    let asm_path = TEST_FOLDER.to_owned() + testname + ".s";
     generate_rv_assembly(c_path, &asm_path);
 
-    let binary_path = binary_folder.to_owned() + testname;
-    let final_path = binary_folder.to_owned() + testname + ".bin";
+    let binary_path = BINARY_FOLDER.to_owned() + testname;
+    let final_path = BINARY_FOLDER.to_owned() + testname + ".bin";
 
     generate_rv_obj(&asm_path, &binary_path);
     generate_rv_bin(&binary_path, &final_path);
@@ -95,29 +94,35 @@ pub fn rv_c_helper(path: &str, testname: &str, n_clock: usize) -> Result<Cpu, st
     run_cpu(code, n_clock)
 }
 
-fn run_cpu(code: Vec<u8>, n_clock: usize) -> Result<Cpu, std::io::Error> {
+pub fn run_cpu(code: Vec<u8>, n_clock: i64) -> Result<Cpu, std::io::Error> {
     let mut cpu = Cpu::new(code);
+    let mut n_clock = n_clock;
 
-    for _ in 0..n_clock {
+    while n_clock != 0 || n_clock == -1 {
         let inst = match cpu.fetch() {
+            Ok(0) => break,
             Ok(inst) => inst,
-            Err(er) => match er.value {
-                0 => {
-                    println!("program finished its execution and/or jumped to 0");
+            Err(e) => {
+                cpu.handle_exeption(e);
+                if e.is_fatal() {
                     break;
                 }
-                _ => {
-                    panic!("{}", er);
-                }
-            },
+                continue;
+            }
         };
 
         match cpu.execute(inst) {
             Ok(pc) => cpu.pc = pc,
-            Err(er) => {
-                println!("e{}", er);
-                break;
+            Err(e) => {
+                println!("{}", e);
+                cpu.handle_exeption(e);
+                if e.is_fatal() {
+                    break;
+                }
             }
+        }
+        if n_clock != -1 {
+            n_clock -= 1;
         }
     }
 

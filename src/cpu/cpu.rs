@@ -2,7 +2,7 @@ use std::cmp::{max, min};
 use std::usize;
 
 use crate::bus::Bus;
-use crate::exept::Exept;
+use crate::exept::Exception;
 use crate::param::{DRAM_BASE, DRAM_END};
 use crate::{bus, csr, sign_extend};
 use crate::{csr::*, err_illegal_instruction};
@@ -48,20 +48,23 @@ impl Cpu {
     }
 
     // Load value from dram
-    pub fn load(&self, addr: u64, size: u64) -> Result<u64, Exept> {
+    pub fn load(&self, addr: u64, size: u64) -> Result<u64, Exception> {
         self.bus.load(addr, size)
     }
 
     // Store value to dram
-    pub fn store(&mut self, addr: u64, size: u64, value: u64) -> Result<(), Exept> {
+    pub fn store(&mut self, addr: u64, size: u64, value: u64) -> Result<(), Exception> {
         self.bus.store(addr, size, value)
     }
 
-    pub fn fetch(&mut self) -> Result<u64, Exept> {
-        return self.bus.load(self.pc, 32);
+    pub fn fetch(&mut self) -> Result<u64, Exception> {
+        match self.bus.load(self.pc, 32) {
+            Ok(inst) => Ok(inst),
+            Err(_e) => Err(Exception::InstructionAccessFault(self.pc)),
+        }
     }
 
-    pub fn execute(&mut self, inst: u64) -> Result<u64, Exept> {
+    pub fn execute(&mut self, inst: u64) -> Result<u64, Exception> {
         let (funct7, rs2, rs1, funct3, rd, opcode) = decode_r(inst as u32);
 
         // by spec x0 is ALWAYS zero
@@ -688,6 +691,42 @@ impl Cpu {
             _ => err_illegal_instruction!(inst),
         }
         Ok(self.pc.wrapping_add(4))
+    }
+
+    pub fn handle_exeption(&mut self, e: Exception) {
+        let pc = self.pc;
+        let mode = self.mode;
+        let cause = e.code();
+
+        // if an exception happen in U-mode or S-mode, and the exception is delegated to S-mode.
+        let trap_in_s_mode = mode <= Supervisor && self.csr.is_medelegated(cause);
+        // selecting mode
+        let (STATUS, TVEC, CAUSE, TVAL, EPC, MASK_PIE, pie_i, MASK_IE, ie_i, MASK_PP, pp_i) =
+            if trap_in_s_mode {
+                self.mode = Supervisor;
+                (
+                    SSTATUS, STVEC, SCAUSE, STVAL, SEPC, MASK_SPIE, 5, MASK_SIE, 1, MASK_SPP, 8,
+                )
+            } else {
+                self.mode = Machine;
+                (
+                    MSTATUS, MTVEC, MCAUSE, MTVAL, MEPC, MASK_MPIE, 7, MASK_MIE, 3, MASK_MPP, 11,
+                )
+            };
+
+        self.pc = self.csr.load(TVEC) & !0b11;
+        self.csr.store(EPC, pc);
+        self.csr.store(CAUSE, cause);
+        self.csr.store(TVAL, e.value());
+        let mut status = self.csr.load(STATUS);
+        let ie = (status & MASK_IE) >> ie_i;
+        // set SPIE = SIE / MPIE = MIE
+        status = (status & !MASK_PIE) | (ie << pie_i);
+        // set SIE = 0 / MIE = 0
+        status &= !MASK_IE;
+        // set SPP / MPP = previous mode
+        status = (status & !MASK_PP) | (mode << pp_i);
+        self.csr.store(STATUS, status);
     }
 
     pub fn reg(&self, r: &str) -> u64 {

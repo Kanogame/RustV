@@ -4,7 +4,7 @@ use std::{
     io::{self, Read},
 };
 
-use cpu::cpu::Cpu;
+use cpu::{cpu::Cpu, test_framework::run_cpu};
 
 mod bus;
 mod cpu;
@@ -25,32 +25,6 @@ fn main() -> io::Result<()> {
     let mut file = File::open(&args[1])?;
     let mut code = Vec::new();
     file.read_to_end(&mut code)?;
-
-    let mut cpu = Cpu::new(code);
-
-    loop {
-        let inst = match cpu.fetch() {
-            Ok(inst) => inst,
-            Err(e) => match e.value {
-                0 => {
-                    println!("program finished its execution and jumped to 0");
-                    break;
-                }
-                _ => {
-                    panic!("{}", e);
-                }
-            },
-        };
-
-        match cpu.execute(inst) {
-            Ok(next_pc) => cpu.pc = next_pc,
-            Err(e) => {
-                panic!("{}", e);
-            }
-        };
-    }
-
-    cpu.dump_registers();
-
+    run_cpu(code, -1);
     Ok(())
 }

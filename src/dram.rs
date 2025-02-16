@@ -1,4 +1,4 @@
-use crate::exept::Exept;
+use crate::exept::Exception;
 use crate::param::{DRAM_BASE, DRAM_SIZE};
 
 pub struct Dram {
@@ -12,9 +12,9 @@ impl Dram {
         Self { dram }
     }
 
-    pub fn load(&self, addr: u64, size: u64) -> Result<u64, Exept> {
+    pub fn load(&self, addr: u64, size: u64) -> Result<u64, Exception> {
         if ![8, 16, 24, 32, 64].contains(&size) {
-            return Err(Exept::load_access_fault(size));
+            return Err(Exception::LoadAccessFault(size));
         }
 
         return Ok(self.load_little_endian((addr - DRAM_BASE) as usize, (size / 8) as usize));
@@ -28,9 +28,9 @@ impl Dram {
         code
     }
 
-    pub fn store(&mut self, addr: u64, size: u64, value: u64) -> Result<(), Exept> {
+    pub fn store(&mut self, addr: u64, size: u64, value: u64) -> Result<(), Exception> {
         if ![8, 16, 24, 32, 64].contains(&size) {
-            return Err(Exept::store_amo_access_fault(size));
+            return Err(Exception::StoreAMOAccessFault(size));
         }
 
         self.store_little_endian((addr - DRAM_BASE) as usize, (size / 8) as usize, value);
