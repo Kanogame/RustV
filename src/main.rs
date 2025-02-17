@@ -9,6 +9,7 @@ use cpu::{cpu::Cpu, test_framework::run_cpu};
 mod bus;
 mod cpu;
 mod csr;
+mod device;
 mod dram;
 mod exept;
 mod param;
