@@ -48,7 +48,7 @@ impl Cpu {
     }
 
     // Load value from dram
-    pub fn load(&self, addr: u64, size: u64) -> Result<u64, Exception> {
+    pub fn load(&mut self, addr: u64, size: u64) -> Result<u64, Exception> {
         self.bus.load(addr, size)
     }
 
@@ -66,6 +66,7 @@ impl Cpu {
 
     pub fn execute(&mut self, inst: u64) -> Result<u64, Exception> {
         let (funct7, rs2, rs1, funct3, rd, opcode) = decode_r(inst as u32);
+        //println!("{:x}: {:x} {:x} -> {:x}", opcode, funct3, funct7, inst);
 
         // by spec x0 is ALWAYS zero
         self.regs[0] = 0;
@@ -73,7 +74,6 @@ impl Cpu {
         // all convertions are nessesary to preserve sign
         // i8 -> i64 (will sign-extend)
         // i8 -> u64 (will zero-extend)
-        println!("{:x}: {:x} {:x} -> {:x}", opcode, funct3, funct7, inst);
         match opcode {
             0x3 => {
                 //I load value from memory to rd

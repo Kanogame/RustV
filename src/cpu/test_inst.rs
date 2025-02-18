@@ -507,3 +507,14 @@ remw a2, a0, a1
 ";
     riscv_asm_test!(code, "test_remw_overflow_division", 10, "a2" => 0);
 }
+
+// uart
+#[test]
+fn test_hello_world() {
+    riscv_c_test!("./m_tests/uart_hello_word.c", "test_hello_world", 10000, "a0" => 0);
+}
+
+#[test]
+fn test_uart_demo() {
+    riscv_c_test!("./m_tests/uart_demo.c", "test_uart_demo", 10000, "a0" => 0);
+}

@@ -9,9 +9,11 @@ int main()
     int size = 4;
     bubble_sort(arr, size);
     int res = 0;
-    for (int i = 0; i < size; i++)
+    int i = 0;
+    while (i < size)
     {
         res += i * arr[i];
+        i++;
     }
     return res;
 }
