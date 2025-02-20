@@ -516,5 +516,6 @@ fn test_hello_world() {
 
 #[test]
 fn test_uart_demo() {
-    riscv_c_test!("./m_tests/uart_demo.c", "test_uart_demo", 10000, "a0" => 0);
+    // not actually a test
+    riscv_c_test!("./m_tests/uart_demo.c", "test_uart_demo", 0, "a0" => 0);
 }

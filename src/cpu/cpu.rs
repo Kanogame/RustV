@@ -67,7 +67,6 @@ impl Cpu {
     pub fn execute(&mut self, inst: u64) -> Result<u64, Exception> {
         let (funct7, rs2, rs1, funct3, rd, opcode) = decode_r(inst as u32);
         //println!("{:x}: {:x} {:x} -> {:x}", opcode, funct3, funct7, inst);
-
         // by spec x0 is ALWAYS zero
         self.regs[0] = 0;
 
