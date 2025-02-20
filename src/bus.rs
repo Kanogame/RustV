@@ -23,6 +23,10 @@ impl Bus {
             DRAM_BASE..DRAM_END => {
                 return self.dram.load(addr, size);
             }
+            // static values
+            0x1000..0xFFFF => {
+                return self.dram.load(addr + DRAM_BASE, size);
+            }
             UART_BASE..UART_END => {
                 return self.uart.load(addr, size);
             }
@@ -34,6 +38,10 @@ impl Bus {
         match &addr {
             DRAM_BASE..DRAM_END => {
                 return self.dram.store(addr, size, value);
+            }
+            // static values
+            0x1000..0xFFFF => {
+                return self.dram.store(addr + DRAM_BASE, size, value);
             }
             UART_BASE..UART_END => {
                 return self.uart.store(addr, size, value);
