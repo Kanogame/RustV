@@ -12,6 +12,7 @@ mod csr;
 mod device;
 mod dram;
 mod exept;
+mod interrupt;
 mod param;
 
 fn main() -> io::Result<()> {
