@@ -1,9 +1,11 @@
+use core::panic;
 use std::cmp::{max, min};
 use std::usize;
 
 use crate::bus::Bus;
 use crate::exept::Exception;
-use crate::param::{DRAM_BASE, DRAM_END};
+use crate::interrupt::interrupt::Interrupt;
+use crate::param::{DRAM_BASE, DRAM_END, PLIC_SCLAIM, UART_IRQ};
 use crate::{bus, csr, sign_extend};
 use crate::{csr::*, err_illegal_instruction};
 
@@ -726,6 +728,73 @@ impl Cpu {
         // set SPP / MPP = previous mode
         status = (status & !MASK_PP) | (mode << pp_i);
         self.csr.store(STATUS, status);
+    }
+
+    pub fn handle_interrupt(&mut self, interrupt: Interrupt) {
+        let pc = self.pc;
+        let mode = self.mode;
+        let cause = interrupt.code();
+        let trap_in_s_mode = mode <= Supervisor && self.csr.is_midelegated(cause);
+
+        let (STATUS, TVEC, CAUSE, TVAL, EPC, MASK_PIE, pie_i, MASK_IE, ie_i, MASK_PP, pp_i) =
+            if trap_in_s_mode {
+                self.mode = Supervisor;
+                (
+                    SSTATUS, STVEC, SCAUSE, STVAL, SEPC, MASK_SPIE, 5, MASK_SIE, 1, MASK_SPP, 8,
+                )
+            } else {
+                self.mode = Machine;
+                (
+                    MSTATUS, MTVEC, MCAUSE, MTVAL, MEPC, MASK_MPIE, 7, MASK_MIE, 3, MASK_MPP, 11,
+                )
+            };
+
+        let tvec = self.csr.load(TVEC);
+        self.pc = match tvec & 0b11 {
+            0 => tvec & 0b11,
+            1 => (tvec & !0b11) + cause << 2,
+            _ => unreachable!(),
+        };
+
+        self.csr.store(EPC, pc);
+        self.csr.store(CAUSE, cause);
+        self.csr.store(TVAL, 0);
+        let mut status = self.csr.load(STATUS);
+        let ie = (status & MASK_IE) >> ie_i;
+        // set SPIE = SIE / MPIE = MIE
+        status = (status & !MASK_PIE) | (ie << pie_i);
+        // set SIE = 0 / MIE = 0
+        status &= !MASK_IE;
+        // set SPP / MPP = previous mode
+        status = (status & !MASK_PP) | (mode << pp_i);
+        self.csr.store(STATUS, status);
+    }
+
+    pub fn check_pending_interrupt(&mut self) -> Option<Interrupt> {
+        use Interrupt::*;
+        if (self.mode == Machine) && (self.csr.load(MSTATUS) & MASK_MIE) == 0 {
+            return None;
+        }
+        if (self.mode == Supervisor) && (self.csr.load(SSTATUS) & MASK_SIE) == 0 {
+            return None;
+        }
+        if self.bus.uart.is_interrupting() {
+            self.bus.store(PLIC_SCLAIM, 32, UART_IRQ).unwrap();
+            self.csr.store(MIP, self.csr.load(MIP) | MASK_SEIP);
+        }
+
+        let pending = self.csr.load(MIE) & self.csr.load(MIP);
+
+        for i in [
+            MASK_MEIP, MASK_MSIP, MASK_MTIP, MASK_SEIP, MASK_SSIP, MASK_STIP,
+        ] {
+            if (pending & i) != 0 {
+                self.csr.store(MIP, self.csr.load(MIP) & !i);
+                return Some(MachineExternalInterrupt);
+            }
+        }
+
+        return None;
     }
 
     pub fn reg(&self, r: &str) -> u64 {

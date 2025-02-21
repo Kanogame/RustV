@@ -121,6 +121,12 @@ pub fn run_cpu(code: Vec<u8>, n_clock: i64) -> Result<Cpu, std::io::Error> {
                 }
             }
         }
+
+        match cpu.check_pending_interrupt() {
+            Some(interrupt) => cpu.handle_interrupt(interrupt),
+            None => (),
+        }
+
         if n_clock != -1 {
             n_clock -= 1;
         }
