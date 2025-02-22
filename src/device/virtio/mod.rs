@@ -1,2 +1,2 @@
 pub mod virtio;
-mod virtqueue;
+pub mod virtqueue;

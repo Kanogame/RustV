@@ -3,9 +3,13 @@ use std::cmp::{max, min};
 use std::usize;
 
 use crate::bus::Bus;
+use crate::device::virtio::virtqueue::{VirtioBlkRequest, VirtqAvail, VirtqDesc};
 use crate::exept::Exception;
 use crate::interrupt::interrupt::Interrupt;
-use crate::param::{DRAM_BASE, DRAM_END, PLIC_SCLAIM, UART_IRQ};
+use crate::param::{
+    DESC_NUM, DRAM_BASE, DRAM_END, PAGE_SIZE, PLIC_SCLAIM, SECTOR_SIZE, UART_IRQ, VIRTIO_BLK_T_IN,
+    VIRTIO_BLK_T_OUT, VIRTIO_IRQ,
+};
 use crate::{bus, csr, sign_extend};
 use crate::{csr::*, err_illegal_instruction};
 
@@ -749,6 +753,7 @@ impl Cpu {
                 )
             };
 
+        // trap base address
         let tvec = self.csr.load(TVEC);
         self.pc = match tvec & 0b11 {
             0 => tvec & 0b11,
@@ -772,14 +777,22 @@ impl Cpu {
 
     pub fn check_pending_interrupt(&mut self) -> Option<Interrupt> {
         use Interrupt::*;
+        // is mie on
         if (self.mode == Machine) && (self.csr.load(MSTATUS) & MASK_MIE) == 0 {
             return None;
         }
+        // is sie on
         if (self.mode == Supervisor) && (self.csr.load(SSTATUS) & MASK_SIE) == 0 {
             return None;
         }
+
+        // interrupts for external devices
         if self.bus.uart.is_interrupting() {
             self.bus.store(PLIC_SCLAIM, 32, UART_IRQ).unwrap();
+            self.csr.store(MIP, self.csr.load(MIP) | MASK_SEIP);
+        } else if self.bus.virtio_blk.is_interrupting() {
+            self.disk_access();
+            self.bus.store(PLIC_SCLAIM, 32, VIRTIO_IRQ).unwrap();
             self.csr.store(MIP, self.csr.load(MIP) | MASK_SEIP);
         }
 
@@ -795,6 +808,85 @@ impl Cpu {
         }
 
         return None;
+    }
+
+    pub fn disk_access(&mut self) {
+        // size of descriptor table el
+        const DESC_SIZE: u64 = size_of::<VirtqDesc>() as u64;
+        let desc_addr = self.bus.virtio_blk.desc_addr();
+        let avail_addr = desc_addr + DESC_NUM as u64 * DESC_SIZE;
+        let used_addr = desc_addr + PAGE_SIZE;
+        // casting addresses
+        let virtq_avail = unsafe { &(*(avail_addr as *const VirtqAvail)) };
+        let virtq_used = unsafe { &(*(used_addr as *const VirtqAvail)) };
+
+        // indexing idx to available ring
+        let idx = self
+            .bus
+            .load(&virtq_avail.idx as *const _ as u64, 16)
+            .unwrap() as usize;
+        let index = self
+            .bus
+            .load(&virtq_avail.ring[idx % DESC_NUM] as *const _ as u64, 16)
+            .unwrap();
+
+        //The first descriptor:
+        // which contains the request information and a pointer to the data descriptor.
+        let desc_addr0 = desc_addr + DESC_SIZE * index;
+        let virtq_desc0 = unsafe { &(*(desc_addr0 as *const VirtqDesc)) };
+        let next0 = self
+            .bus
+            .load(&virtq_desc0.next as *const _ as u64, 16)
+            .unwrap();
+
+        let req_addr = self
+            .bus
+            .load(&virtq_desc0.addr as *const _ as u64, 64)
+            .unwrap();
+        let virtq_blk_req = unsafe { &(*(req_addr as *const VirtioBlkRequest)) };
+        let blk_sector = self
+            .bus
+            .load(&virtq_blk_req.sector as *const _ as u64, 64)
+            .unwrap();
+        let iotype = self
+            .bus
+            .load(&virtq_blk_req.iotype as *const _ as u64, 32)
+            .unwrap() as u32;
+
+        // the second descriptor.
+        let desc_addr1 = desc_addr + DESC_SIZE * next0;
+        let virtq_desc1 = unsafe { &(*(desc_addr1 as *const VirtqDesc)) };
+        let addr1 = self
+            .bus
+            .load(&virtq_desc1.addr as *const _ as u64, 64)
+            .unwrap();
+        let len1 = self
+            .bus
+            .load(&virtq_desc1.len as *const _ as u64, 32)
+            .unwrap();
+
+        match iotype {
+            VIRTIO_BLK_T_OUT => {
+                for i in 0..len1 {
+                    let data = self.bus.load(addr1 + i, 8).unwrap();
+                    self.bus
+                        .virtio_blk
+                        .write_disk(blk_sector * SECTOR_SIZE + i, data);
+                }
+            }
+            VIRTIO_BLK_T_IN => {
+                for i in 0..len1 {
+                    let data = self.bus.virtio_blk.read_disk(blk_sector * SECTOR_SIZE + i);
+                    self.bus.store(addr1 + i, 8, data as u64).unwrap();
+                }
+            }
+            _ => unreachable!(),
+        }
+
+        let new_id = self.bus.virtio_blk.get_new_id();
+        self.bus
+            .store(&virtq_used.idx as *const _ as u64, 16, new_id % 8)
+            .unwrap();
     }
 
     pub fn reg(&self, r: &str) -> u64 {
