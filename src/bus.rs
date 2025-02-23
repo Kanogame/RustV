@@ -15,8 +15,7 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub fn new(code: Vec<u8>) -> Bus {
-        let disk_image: Vec<u8> = vec![0];
+    pub fn new(code: Vec<u8>, disk_image: Vec<u8>) -> Bus {
         Self {
             dram: Dram::new(code),
             uart: Uart::new(),
@@ -48,7 +47,7 @@ impl Bus {
             UART_BASE..UART_END => self.uart.store(addr, size, value),
             // static values
             0x1000..0xFFFF => self.dram.store(addr + DRAM_BASE, size, value),
-            _ => Err(Exception::LoadAccessFault(addr)),
+            _ => Err(Exception::StoreAMOAccessFault(addr)),
         }
     }
 }

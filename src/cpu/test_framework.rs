@@ -72,7 +72,7 @@ pub fn rv_asm_helper(code: &str, testname: &str, n_clock: i64) -> Result<Cpu, st
     let mut file_bin = File::open(final_path)?;
     let mut code = Vec::new();
     file_bin.read_to_end(&mut code)?;
-    run_cpu(code, n_clock)
+    run_cpu(code, vec![0], n_clock)
 }
 
 // generate riscv binary from C, run it for n_clocks
@@ -91,16 +91,17 @@ pub fn rv_c_helper(path: &str, testname: &str, n_clock: i64) -> Result<Cpu, std:
     let mut file_bin = File::open(final_path)?;
     let mut code = Vec::new();
     file_bin.read_to_end(&mut code)?;
-    run_cpu(code, n_clock)
+    run_cpu(code, vec![0], n_clock)
 }
 
-pub fn run_cpu(code: Vec<u8>, n_clock: i64) -> Result<Cpu, std::io::Error> {
-    let mut cpu = Cpu::new(code);
+pub fn run_cpu(code: Vec<u8>, disk_image: Vec<u8>, n_clock: i64) -> Result<Cpu, std::io::Error> {
+    let mut cpu = Cpu::new(code, disk_image);
     let mut n_clock = n_clock;
 
     while n_clock != 0 || n_clock == -1 {
         let inst = match cpu.fetch() {
             Ok(0) => break,
+            //Ok(0xfee79ce3) => break,
             Ok(inst) => inst,
             Err(e) => {
                 cpu.handle_exeption(e);

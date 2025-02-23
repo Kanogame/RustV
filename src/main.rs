@@ -18,7 +18,7 @@ mod param;
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 2 {
+    if args.len() < 2 {
         println!("pass the filename");
 
         return Ok(());
@@ -27,6 +27,13 @@ fn main() -> io::Result<()> {
     let mut file = File::open(&args[1])?;
     let mut code = Vec::new();
     file.read_to_end(&mut code)?;
-    run_cpu(code, -1);
+
+    let mut disk_image = Vec::new();
+    if args.len() == 3 {
+        let mut file = File::open(&args[2])?;
+        file.read_to_end(&mut disk_image)?;
+    }
+
+    run_cpu(code, disk_image, -1);
     Ok(())
 }

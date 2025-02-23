@@ -91,6 +91,8 @@ pub const SIP: usize = 0x144;
 /// Supervisor address translation and protection.
 pub const SATP: usize = 0x180;
 
+pub const MASK_PPN: u64 = (1 << 44) - 1;
+
 pub const MASK_SIE: u64 = 1 << 1;
 pub const MASK_MIE: u64 = 1 << 3;
 pub const MASK_SPIE: u64 = 1 << 5;

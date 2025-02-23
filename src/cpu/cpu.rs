@@ -1,5 +1,6 @@
 use core::panic;
 use std::cmp::{max, min};
+use std::thread::AccessError;
 use std::usize;
 
 use crate::bus::Bus;
@@ -29,6 +30,12 @@ const User: Mode = 0b00;
 const Supervisor: Mode = 0b01;
 const Machine: Mode = 0b11;
 
+pub enum AccessType {
+    Instruction,
+    Load,
+    Store,
+}
+
 pub struct Cpu {
     //RISC-V has 32 registers
     pub regs: [u64; 32],
@@ -37,34 +44,41 @@ pub struct Cpu {
     pub mode: Mode,
     pub bus: bus::Bus,
     pub csr: csr::Csr,
+    pub enable_paging: bool,
+    pub page_table: u64,
 }
 
 impl Cpu {
-    pub fn new(code: Vec<u8>) -> Self {
+    pub fn new(code: Vec<u8>, disk_image: Vec<u8>) -> Self {
         let mut regs = [0; 32];
         //sp - stack pointer
         regs[2] = DRAM_END;
         Self {
             regs,
             pc: DRAM_BASE,
-            bus: Bus::new(code),
+            bus: Bus::new(code, disk_image),
             csr: Csr::new(),
             mode: Machine,
+            page_table: 0,
+            enable_paging: false,
         }
     }
 
     // Load value from dram
     pub fn load(&mut self, addr: u64, size: u64) -> Result<u64, Exception> {
-        self.bus.load(addr, size)
+        let p_addr = self.translate(addr, AccessType::Load)?;
+        self.bus.load(p_addr, size)
     }
 
     // Store value to dram
     pub fn store(&mut self, addr: u64, size: u64, value: u64) -> Result<(), Exception> {
-        self.bus.store(addr, size, value)
+        let p_addr = self.translate(addr, AccessType::Store)?;
+        self.bus.store(p_addr, size, value)
     }
 
     pub fn fetch(&mut self) -> Result<u64, Exception> {
-        match self.bus.load(self.pc, 32) {
+        let p_pc = self.translate(self.pc, AccessType::Instruction)?;
+        match self.bus.load(p_pc, 32) {
             Ok(inst) => Ok(inst),
             Err(_e) => Err(Exception::InstructionAccessFault(self.pc)),
         }
@@ -72,8 +86,11 @@ impl Cpu {
 
     pub fn execute(&mut self, inst: u64) -> Result<u64, Exception> {
         let (funct7, rs2, rs1, funct3, rd, opcode) = decode_r(inst as u32);
-        //println!("{:x}: {:x} {:x} -> {:x}", opcode, funct3, funct7, inst);
         // by spec x0 is ALWAYS zero
+        if inst == 0xfee79ce3 {
+            panic!();
+        }
+        //println!("{:x}: {:x} {:x} -> {:x}", opcode, funct3, funct7, inst);
         self.regs[0] = 0;
 
         // all convertions are nessesary to preserve sign
@@ -94,10 +111,14 @@ impl Cpu {
                     _ => err_illegal_instruction!(inst),
                 }
             }
+            0x0f => {
+                // A fence instruction does nothing because this emulator executes an instruction sequentially on a single thread.
+            }
             0x13 => {
                 // I
                 let imm = get_i_imm(inst);
                 let shamt = get_shamt_6(imm);
+
                 match funct3 {
                     0x0 => {
                         //I addi - add rs1 with immediate, store to rd
@@ -105,7 +126,7 @@ impl Cpu {
                     }
                     0x1 => {
                         //S (without rs2) slli - rd = rs1 << rs2
-                        self.regs[rd] = self.regs[rs1].wrapping_shl(shamt);
+                        self.regs[rd] = self.regs[rs1] << shamt;
                     }
                     0x2 => {
                         //I slti - 1 to rd if signed rs1 < signed imm, else 0
@@ -128,12 +149,12 @@ impl Cpu {
                         self.regs[rd] = self.regs[rs1] ^ imm;
                     }
                     0x5 => {
-                        match funct7 {
+                        match funct7 >> 1 {
                             0x0 => {
                                 //S (without rs2) srli - rd = rs1 >> rs2
                                 self.regs[rd] = self.regs[rs1].wrapping_shr(shamt);
                             }
-                            0x20 => {
+                            0x10 => {
                                 //S (without rs2) srai - rd = rs1 >> rs2 (arithmetic)
                                 self.regs[rd] = (self.regs[rs1] as i64).wrapping_shr(shamt) as u64;
                             }
@@ -208,17 +229,15 @@ impl Cpu {
                 match (funct3, funct5) {
                     (0x2, 0x0) => {
                         // amoadd.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
-                        self.store(
-                            self.regs[rs1],
-                            32,
-                            self.regs[rs2].wrapping_add(self.regs[rd]),
-                        )?;
+                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, self.regs[rs2].wrapping_add(t))?;
+                        self.regs[rd] = t;
                     }
                     (0x2, 0x1) => {
                         // amoswap.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = self.load(self.regs[rs1], 32)?;
                         self.store(self.regs[rs1], 32, self.regs[rs2])?;
+                        self.regs[rd] = t;
                     }
                     (0x2, 0x2) => {
                         // lr.w
@@ -230,60 +249,65 @@ impl Cpu {
                     }
                     (0x2, 0x4) => {
                         // amoxor.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
-                        self.store(self.regs[rs1], 32, self.regs[rs2] ^ self.regs[rd])?;
+                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, self.regs[rs2] ^ t)?;
+                        self.regs[rd] = t;
                     }
                     (0x2, 0x8) => {
                         // amoor.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
-                        self.store(self.regs[rs1], 32, self.regs[rs2] | self.regs[rd])?;
+                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, self.regs[rs2] | t)?;
+                        self.regs[rd] = t;
                     }
                     (0x2, 0xc) => {
                         // amoand.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
-                        self.store(self.regs[rs1], 32, self.regs[rs2] & self.regs[rd])?;
+                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, self.regs[rs2] & t)?;
+                        self.regs[rd] = t;
                     }
                     (0x2, 0x10) => {
                         // amomin.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
                         self.store(
                             self.regs[rs1],
                             32,
-                            min(self.regs[rs2] as i64, self.regs[rd] as i64) as u64,
+                            min(self.regs[rs2] as i64, t as i64) as u64,
                         )?;
+                        self.regs[rd] = t;
                     }
                     (0x2, 0x14) => {
                         // amomax.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
                         self.store(
                             self.regs[rs1],
                             32,
-                            max(self.regs[rs2] as i64, self.regs[rd] as i64) as u64,
+                            max(self.regs[rs2] as i64, t as i64) as u64,
                         )?;
+                        self.regs[rd] = t;
                     }
                     (0x2, 0x18) => {
                         // amomax.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
-                        self.store(self.regs[rs1], 32, min(self.regs[rs2], self.regs[rd]))?;
+                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, min(self.regs[rs2], t))?;
+                        self.regs[rd] = t;
                     }
                     (0x2, 0x1c) => {
                         // amomaxu.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
-                        self.store(self.regs[rs1], 32, max(self.regs[rs2], self.regs[rd]))?;
+                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.store(self.regs[rs1], 32, max(self.regs[rs2], t))?;
+                        self.regs[rd] = t;
                     }
                     (0x3, 0x0) => {
                         // amoadd.d
-                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
-                        self.store(
-                            self.regs[rs1],
-                            64,
-                            self.regs[rs2].wrapping_add(self.regs[rd]),
-                        )?;
+                        let t = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, self.regs[rs2].wrapping_add(t))?;
+                        self.regs[rd] = t;
                     }
                     (0x3, 0x1) => {
-                        // amoswap.w
-                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        // amoswap.d
+                        let t = self.load(self.regs[rs1], 64)?;
                         self.store(self.regs[rs1], 64, self.regs[rs2])?;
+                        self.regs[rd] = t;
                     }
                     (0x3, 0x2) => {
                         // lr.d
@@ -295,46 +319,53 @@ impl Cpu {
                     }
                     (0x3, 0x4) => {
                         // amoxor.w
-                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
-                        self.store(self.regs[rs1], 64, self.regs[rs2] ^ self.regs[rd])?;
+                        let t = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, self.regs[rs2] ^ t)?;
+                        self.regs[rd] = t;
                     }
                     (0x3, 0x8) => {
                         // amoor.w
-                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
-                        self.store(self.regs[rs1], 64, self.regs[rs2] | self.regs[rd])?;
+                        let t = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, self.regs[rs2] | t)?;
+                        self.regs[rd] = t;
                     }
                     (0x3, 0xc) => {
                         // amoand.w
-                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
-                        self.store(self.regs[rs1], 64, self.regs[rs2] & self.regs[rd])?;
+                        let t = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, self.regs[rs2] & t)?;
+                        self.regs[rd] = t;
                     }
                     (0x3, 0x10) => {
                         // amomin.w
-                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        let t = self.load(self.regs[rs1], 64)?;
                         self.store(
                             self.regs[rs1],
                             64,
-                            min(self.regs[rs2] as i64, self.regs[rd] as i64) as u64,
+                            min(self.regs[rs2] as i64, t as i64) as u64,
                         )?;
+                        self.regs[rd] = t;
                     }
                     (0x3, 0x14) => {
                         // amomax.w
-                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
+                        let t = self.load(self.regs[rs1], 64)?;
                         self.store(
                             self.regs[rs1],
                             64,
-                            max(self.regs[rs2] as i64, self.regs[rd] as i64) as u64,
+                            max(self.regs[rs2] as i64, t as i64) as u64,
                         )?;
+                        self.regs[rd] = t;
                     }
                     (0x3, 0x18) => {
                         // amomax.w
-                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
-                        self.store(self.regs[rs1], 64, min(self.regs[rs2], self.regs[rd]))?;
+                        let t = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, min(self.regs[rs2], t))?;
+                        self.regs[rd] = t;
                     }
                     (0x3, 0x1c) => {
                         // amomaxu.w
-                        self.regs[rd] = self.load(self.regs[rs1], 64)?;
-                        self.store(self.regs[rs1], 64, max(self.regs[rs2], self.regs[rd]))?;
+                        let t = self.load(self.regs[rs1], 64)?;
+                        self.store(self.regs[rs1], 64, max(self.regs[rs2], t))?;
+                        self.regs[rd] = t;
                     }
                     _ => err_illegal_instruction!(inst),
                 }
@@ -595,18 +626,26 @@ impl Cpu {
             0x67 => {
                 //I jalr - jumps to rs1 + imm12
                 // new var cause rd can be equal rs1
+                let t = self.pc + 4;
                 let new_pc = (self.regs[rs1].wrapping_add(get_i_imm(inst))) & !1;
 
-                self.regs[rd] = self.pc + 4;
+                self.regs[rd] = t;
                 return Ok(new_pc);
             }
             0x6f => {
                 //J jal - jumps to pc + imm20 << 1
                 self.regs[rd] = self.pc + 4;
-                return Ok(self.pc.wrapping_add(get_j_imm(inst)));
+
+                // imm[20|10:1|11|19:12] = inst[31|30:21|20|19:12]
+                let imm = (((inst & 0x80000000) as i32 as i64 >> 11) as u64) // imm[20]
+                    | (inst & 0xff000) // imm[19:12]
+                    | ((inst >> 9) & 0x800) // imm[11]
+                    | ((inst >> 20) & 0x7fe); // imm[10:1]
+
+                return Ok(self.pc.wrapping_add(imm));
             }
             0x73 => {
-                let csr = get_i_imm(inst) as usize;
+                let csr_addr = ((inst & 0xfff00000) >> 20) as usize;
                 let zimm = rs1 as u64;
                 match funct3 {
                     0x0 => match (rs2, funct7) {
@@ -646,49 +685,45 @@ impl Cpu {
                     },
                     0x1 => {
                         // csrrw
-                        if rs1 != 0 {
-                            self.regs[rd] = self.csr.load(csr);
-                            self.csr.store(csr, self.regs[rs1]);
-                        }
+                        let t = self.csr.load(csr_addr);
+                        self.csr.store(csr_addr, self.regs[rs1]);
+                        self.regs[rd] = t;
+
+                        self.update_paging(csr_addr);
                     }
                     0x2 => {
                         // csrrs
-                        if rs1 != 0 {
-                            let t = self.csr.load(csr);
-                            self.csr.store(csr, t | self.regs[rs1]);
-                            self.regs[rd] = t;
-                        }
+                        let t = self.csr.load(csr_addr);
+                        self.csr.store(csr_addr, t | self.regs[rs1]);
+                        self.regs[rd] = t;
+                        self.update_paging(csr_addr);
                     }
                     0x3 => {
                         // csrrc
-                        if rs1 != 0 {
-                            let t = self.csr.load(csr);
-                            self.csr.store(csr, t & self.regs[rs1]);
-                            self.regs[rd] = t;
-                        }
+                        let t = self.csr.load(csr_addr);
+                        self.csr.store(csr_addr, t & (!self.regs[rs1]));
+                        self.regs[rd] = t;
+                        self.update_paging(csr_addr);
                     }
                     0x5 => {
                         // csrrwi
-                        if rs1 != 0 {
-                            self.regs[rd] = self.csr.load(csr);
-                            self.csr.store(csr, zimm);
-                        }
+                        self.regs[rd] = self.csr.load(csr_addr);
+                        self.csr.store(csr_addr, zimm);
+                        self.update_paging(csr_addr);
                     }
                     0x6 => {
                         // csrrsi
-                        if rs1 != 0 {
-                            let t = self.csr.load(csr);
-                            self.csr.store(csr, t | zimm);
-                            self.regs[rd] = t;
-                        }
+                        let t = self.csr.load(csr_addr);
+                        self.csr.store(csr_addr, t | zimm);
+                        self.regs[rd] = t;
+                        self.update_paging(csr_addr);
                     }
                     0x7 => {
                         // csrrci
-                        if rs1 != 0 {
-                            let t = self.csr.load(csr);
-                            self.csr.store(csr, t & zimm);
-                            self.regs[rd] = t;
-                        }
+                        let t = self.csr.load(csr_addr);
+                        self.csr.store(csr_addr, t & (!zimm));
+                        self.regs[rd] = t;
+                        self.update_paging(csr_addr);
                     }
                     _ => err_illegal_instruction!(inst),
                 }
@@ -808,6 +843,97 @@ impl Cpu {
         }
 
         return None;
+    }
+
+    fn update_paging(&mut self, csr_addr: usize) {
+        if csr_addr != SATP {
+            return;
+        }
+
+        let satp = self.csr.load(SATP);
+        self.page_table = (satp & MASK_PPN) * PAGE_SIZE;
+
+        let mode = satp >> 60;
+        self.enable_paging = mode == 8; // Sv39
+    }
+
+    pub fn translate(&mut self, addr: u64, access_type: AccessType) -> Result<u64, Exception> {
+        if !self.enable_paging {
+            return Ok(addr);
+        }
+
+        let levels = 3;
+        let vpn = [
+            (addr >> 12) & 0x1ff, //L0
+            (addr >> 21) & 0x1ff, //L1
+            (addr >> 30) & 0x1ff, //L2
+        ];
+
+        let mut a = self.page_table;
+        let mut i: i64 = levels - 1;
+        let mut pte;
+        loop {
+            pte = self.bus.load(a + vpn[i as usize] << 3, 64)?;
+
+            let v = pte & 1;
+            let r = (pte >> 1) & 1;
+            let w = (pte >> 2) & 1;
+            let x = (pte >> 3) & 1;
+
+            // If pte.v = 0, or if pte.r = 0 and pte.w = 1, stop and raise a page-fault
+            // exception corresponding to the original access type.
+            if v == 0 || (r == 0 && w == 1) {
+                match access_type {
+                    AccessType::Instruction => return Err(Exception::InstructionPageFault(addr)),
+                    AccessType::Load => return Err(Exception::LoadPageFault(addr)),
+                    AccessType::Store => return Err(Exception::StoreAMOPageFault(addr)),
+                }
+            }
+
+            // leaf pte
+            if r == 1 || x == 1 {
+                break;
+            }
+
+            // text page
+            i -= 1;
+            let ppn = (pte >> 10) & 0x0fff_ffff_ffff;
+            a = ppn * PAGE_SIZE;
+            if i < 0 {
+                match access_type {
+                    AccessType::Instruction => return Err(Exception::InstructionPageFault(addr)),
+                    AccessType::Load => return Err(Exception::LoadPageFault(addr)),
+                    AccessType::Store => return Err(Exception::StoreAMOPageFault(addr)),
+                }
+            }
+        }
+
+        let ppn = [
+            (pte >> 10) & 0x1ff,
+            (pte >> 19) & 0x1ff,
+            (pte >> 28) & 0x03ff_ffff,
+        ];
+
+        let offset = addr & 0xfff;
+        match i {
+            0 => {
+                let ppn = (pte >> 10) & 0x0fff_ffff_ffff;
+                Ok((ppn << 12) | offset)
+            }
+            1 => {
+                // Superpage translation. 2 MiB
+                Ok((ppn[2] << 30) | (ppn[1] << 21) | (vpn[0] << 12) | offset)
+            }
+            2 => {
+                // Superpage translation. 1 GiB
+                Ok((ppn[2] << 30) | (vpn[1] << 21) | (vpn[0] << 12) | offset)
+            }
+            _ => match access_type {
+                AccessType::Instruction => return Err(Exception::InstructionPageFault(addr)),
+                AccessType::Load => return Err(Exception::LoadPageFault(addr)),
+                AccessType::Store => return Err(Exception::StoreAMOPageFault(addr)),
+            },
+        }
     }
 
     pub fn disk_access(&mut self) {
