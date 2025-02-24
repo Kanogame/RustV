@@ -32,6 +32,8 @@ impl Bus {
             VIRTIO_BASE..=VIRTIO_END => self.virtio_blk.load(addr, size),
             DRAM_BASE..DRAM_END => self.dram.load(addr, size),
             UART_BASE..UART_END => self.uart.load(addr, size),
+            // static values (needed for C without paging)
+            //0x1000..0xFFFF => self.dram.load(addr + DRAM_BASE, size),
             _ => Err(Exception::LoadAccessFault(addr)),
         }
     }
@@ -43,6 +45,8 @@ impl Bus {
             VIRTIO_BASE..=VIRTIO_END => self.virtio_blk.store(addr, size, value),
             DRAM_BASE..DRAM_END => self.dram.store(addr, size, value),
             UART_BASE..UART_END => self.uart.store(addr, size, value),
+            // static values (needed for C without paging)
+            //0x1000..0xFFFF => self.dram.store(addr + DRAM_BASE, size, value),
             _ => Err(Exception::StoreAMOAccessFault(addr)),
         }
     }
