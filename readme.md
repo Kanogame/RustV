@@ -1,4 +1,4 @@
-This is RV64 emulator with some pheripherals
+This is RV64 emulator with some peripherals
 
 This emulator is capable of booting xv6 (very slowly, though)
 
