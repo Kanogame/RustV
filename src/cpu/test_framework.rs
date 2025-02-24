@@ -104,8 +104,9 @@ pub fn run_cpu(code: Vec<u8>, disk_image: Vec<u8>, n_clock: i64) -> Result<Cpu, 
             //Ok(0xfee79ce3) => break,
             Ok(inst) => inst,
             Err(e) => {
-                cpu.handle_exeption(e);
+                cpu.handle_exception(e);
                 if e.is_fatal() {
+                    println!("{}", e);
                     break;
                 }
                 continue;
@@ -115,9 +116,9 @@ pub fn run_cpu(code: Vec<u8>, disk_image: Vec<u8>, n_clock: i64) -> Result<Cpu, 
         match cpu.execute(inst) {
             Ok(pc) => cpu.pc = pc,
             Err(e) => {
-                println!("{}", e);
-                cpu.handle_exeption(e);
+                cpu.handle_exception(e);
                 if e.is_fatal() {
+                    println!("{}", e);
                     break;
                 }
             }

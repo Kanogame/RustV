@@ -4,7 +4,7 @@ use std::thread::AccessError;
 use std::usize;
 
 use crate::bus::Bus;
-use crate::device::virtio::virtqueue::{VirtioBlkRequest, VirtqAvail, VirtqDesc};
+use crate::device::virtio::virtqueue::{VirtioBlkRequest, VirtqAvail, VirtqDesc, VirtqUsed};
 use crate::exept::Exception;
 use crate::interrupt::interrupt::Interrupt;
 use crate::param::{
@@ -87,11 +87,10 @@ impl Cpu {
     pub fn execute(&mut self, inst: u64) -> Result<u64, Exception> {
         let (funct7, rs2, rs1, funct3, rd, opcode) = decode_r(inst as u32);
         // by spec x0 is ALWAYS zero
-        if inst == 0xfee79ce3 {
-            panic!();
-        }
-        //println!("{:x}: {:x} {:x} -> {:x}", opcode, funct3, funct7, inst);
         self.regs[0] = 0;
+
+        // for debug
+        //println!("{:x}: {:x} {:x} -> {:x}", opcode, funct3, funct7, inst);
 
         // all convertions are nessesary to preserve sign
         // i8 -> i64 (will sign-extend)
@@ -131,17 +130,17 @@ impl Cpu {
                     0x2 => {
                         //I slti - 1 to rd if signed rs1 < signed imm, else 0
                         if (self.regs[rs1] as i64) < (imm as i64) {
-                            self.regs[rd] = 1
+                            self.regs[rd] = 1;
                         } else {
-                            self.regs[rd] = 0
+                            self.regs[rd] = 0;
                         }
                     }
                     0x3 => {
                         //I sltiu - 1 to rd if usigned rs1 < usigned imm, else 0
                         if self.regs[rs1] < imm {
-                            self.regs[rd] = 1
+                            self.regs[rd] = 1;
                         } else {
-                            self.regs[rd] = 0
+                            self.regs[rd] = 0;
                         }
                     }
                     0x4 => {
@@ -201,10 +200,8 @@ impl Cpu {
                             }
                             0x20 => {
                                 //S (without rs2) sraiw - rd = rs1 >> rs2 (arithmetic)
-                                self.regs[rd] = sign_extend!(
-                                    i32,
-                                    ((self.regs[rs1] as i32).wrapping_shr(shamt))
-                                );
+                                self.regs[rd] =
+                                    (self.regs[rs1] as i32).wrapping_shr(shamt) as i64 as u64;
                             }
                             _ => err_illegal_instruction!(inst),
                         }
@@ -229,8 +226,8 @@ impl Cpu {
                 match (funct3, funct5) {
                     (0x2, 0x0) => {
                         // amoadd.w
-                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
-                        self.store(self.regs[rs1], 32, self.regs[rs2].wrapping_add(t))?;
+                        let t = self.load(self.regs[rs1], 32)?;
+                        self.store(self.regs[rs1], 32, t.wrapping_add(self.regs[rs2]))?;
                         self.regs[rd] = t;
                     }
                     (0x2, 0x1) => {
@@ -241,7 +238,7 @@ impl Cpu {
                     }
                     (0x2, 0x2) => {
                         // lr.w
-                        self.regs[rd] = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        self.regs[rd] = self.load(self.regs[rs1], 32)?;
                     }
                     (0x2, 0x3) => {
                         // sc.w, no condition
@@ -249,58 +246,58 @@ impl Cpu {
                     }
                     (0x2, 0x4) => {
                         // amoxor.w
-                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = self.load(self.regs[rs1], 32)?;
                         self.store(self.regs[rs1], 32, self.regs[rs2] ^ t)?;
                         self.regs[rd] = t;
                     }
                     (0x2, 0x8) => {
                         // amoor.w
-                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = self.load(self.regs[rs1], 32)?;
                         self.store(self.regs[rs1], 32, self.regs[rs2] | t)?;
                         self.regs[rd] = t;
                     }
                     (0x2, 0xc) => {
                         // amoand.w
-                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = self.load(self.regs[rs1], 32)?;
                         self.store(self.regs[rs1], 32, self.regs[rs2] & t)?;
                         self.regs[rd] = t;
                     }
                     (0x2, 0x10) => {
                         // amomin.w
-                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = self.load(self.regs[rs1], 32)?;
                         self.store(
                             self.regs[rs1],
                             32,
-                            min(self.regs[rs2] as i64, t as i64) as u64,
+                            min(self.regs[rs2] as i32, t as i32) as u64,
                         )?;
                         self.regs[rd] = t;
                     }
                     (0x2, 0x14) => {
                         // amomax.w
-                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = self.load(self.regs[rs1], 32)?;
                         self.store(
                             self.regs[rs1],
                             32,
-                            max(self.regs[rs2] as i64, t as i64) as u64,
+                            max(self.regs[rs2] as i32, t as i32) as u64,
                         )?;
                         self.regs[rd] = t;
                     }
                     (0x2, 0x18) => {
                         // amomax.w
-                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = self.load(self.regs[rs1], 32)?;
                         self.store(self.regs[rs1], 32, min(self.regs[rs2], t))?;
                         self.regs[rd] = t;
                     }
                     (0x2, 0x1c) => {
                         // amomaxu.w
-                        let t = sign_extend!(i32, self.load(self.regs[rs1], 32)?);
+                        let t = self.load(self.regs[rs1], 32)?;
                         self.store(self.regs[rs1], 32, max(self.regs[rs2], t))?;
                         self.regs[rd] = t;
                     }
                     (0x3, 0x0) => {
                         // amoadd.d
                         let t = self.load(self.regs[rs1], 64)?;
-                        self.store(self.regs[rs1], 64, self.regs[rs2].wrapping_add(t))?;
+                        self.store(self.regs[rs1], 64, t.wrapping_add(self.regs[rs2]))?;
                         self.regs[rd] = t;
                     }
                     (0x3, 0x1) => {
@@ -502,12 +499,11 @@ impl Cpu {
                     (0x0, 0x20) => {
                         //R subw - sub rs1 with rs2, store to rd
                         self.regs[rd] =
-                            sign_extend!(i32, self.regs[rs1].wrapping_sub(self.regs[rs2]));
+                            ((self.regs[rs1].wrapping_sub(self.regs[rs2])) as i32) as u64;
                     }
                     (0x1, 0x0) => {
                         //R sllw - rd = rs1 << rs2
-                        self.regs[rd] =
-                            sign_extend!(i32, (self.regs[rs1] as u32).wrapping_shl(shamt));
+                        self.regs[rd] = (self.regs[rs1] as u32).wrapping_shl(shamt) as i32 as u64;
                     }
                     (0x4, 0x01) => {
                         //R divw - divide rs1 with rs2, store to rd
@@ -522,28 +518,22 @@ impl Cpu {
                     }
                     (0x5, 0x0) => {
                         //R srlw (unsigned) - rd = rs1 >> rs2
-                        self.regs[rd] =
-                            sign_extend!(i32, (self.regs[rs1] as u32).wrapping_shr(shamt));
+                        self.regs[rd] = (self.regs[rs1] as u32).wrapping_shr(shamt) as i32 as u64;
                     }
                     (0x5, 0x01) => {
                         //R divuw - divide (unsigned) rs1 with rs2, store to rd
-                        if self.regs[rs2] as i32 == 0 {
-                            self.regs[rd] = -1 as i64 as u64;
-                        } else {
-                            self.regs[rd] = sign_extend!(
-                                i32,
-                                (self.regs[rs1] as u32).wrapping_div(self.regs[rs2] as u32)
-                            );
-                        }
+                        self.regs[rd] = match self.regs[rs2] {
+                            0 => 0xffffffff_ffffffff,
+                            _ => {
+                                let dividend = self.regs[rs1];
+                                let divisor = self.regs[rs2];
+                                dividend.wrapping_div(divisor)
+                            }
+                        };
                     }
                     (0x5, 0x20) => {
                         //R sraw - rd = rs1 >> rs2
-                        self.regs[rd] =
-                            sign_extend!(i32, ((self.regs[rs1] as i32).wrapping_shr(shamt)));
-                    }
-                    (0x6, 0x0) => {
-                        //R or - rd = rs1 | rs2
-                        self.regs[rd] = self.regs[rs1] | self.regs[rs2];
+                        self.regs[rd] = ((self.regs[rs1] as i32) >> (shamt as i32)) as u64;
                     }
                     (0x6, 0x1) => {
                         //R remw - reminder of signed divw: rs1 with rs2, store to rd
@@ -556,20 +546,16 @@ impl Cpu {
                             );
                         }
                     }
-                    (0x7, 0x0) => {
-                        //R and - rd = rs1 & rs2
-                        self.regs[rd] = self.regs[rs1] & self.regs[rs2];
-                    }
                     (0x7, 0x1) => {
-                        //R remuw - reminder of unsigned divw: rs1 with rs2, store to rd
-                        if self.regs[rs2] as i32 == 0 {
-                            self.regs[rd] = sign_extend!(i32, self.regs[rs1]);
-                        } else {
-                            self.regs[rd] = sign_extend!(
-                                i32,
-                                (self.regs[rs1] as u32).wrapping_rem(self.regs[rs2] as u32)
-                            );
-                        }
+                        // remuw
+                        self.regs[rd] = match self.regs[rs2] {
+                            0 => self.regs[rs1],
+                            _ => {
+                                let dividend = self.regs[rs1] as u32;
+                                let divisor = self.regs[rs2] as u32;
+                                dividend.wrapping_rem(divisor) as i32 as u64
+                            }
+                        };
                     }
                     _ => err_illegal_instruction!(inst),
                 }
@@ -637,52 +623,81 @@ impl Cpu {
                 self.regs[rd] = self.pc + 4;
 
                 // imm[20|10:1|11|19:12] = inst[31|30:21|20|19:12]
-                let imm = (((inst & 0x80000000) as i32 as i64 >> 11) as u64) // imm[20]
-                    | (inst & 0xff000) // imm[19:12]
-                    | ((inst >> 9) & 0x800) // imm[11]
-                    | ((inst >> 20) & 0x7fe); // imm[10:1]
-
+                let imm = get_j_imm(inst);
                 return Ok(self.pc.wrapping_add(imm));
             }
             0x73 => {
                 let csr_addr = ((inst & 0xfff00000) >> 20) as usize;
-                let zimm = rs1 as u64;
                 match funct3 {
-                    0x0 => match (rs2, funct7) {
-                        (0x2, 0x8) => {
-                            // sret
-                            let mut sstatus = self.csr.load(SSTATUS);
-                            self.mode = (sstatus & MASK_SPP) >> 8;
-                            let spie = (sstatus & MASK_SPIE) >> 5;
-                            //sie = spie
-                            sstatus = (sstatus & !MASK_SIE) | (spie << 1);
-                            // spie = 1
-                            sstatus = sstatus | MASK_SPIE;
-                            // SPP = 0b00, => U
-                            sstatus &= !MASK_SPP;
-                            self.csr.store(SSTATUS, sstatus);
-                            let new_pc = self.csr.load(SEPC) & !0b11;
-                            return Ok(new_pc);
+                    0x0 => {
+                        match (rs2, funct7) {
+                            // ECALL and EBREAK cause the receiving privilege mode’s epc register to be set to the address of
+                            // the ECALL or EBREAK instruction itself, not the address of the following instruction.
+                            (0x0, 0x0) => {
+                                // ecall
+                                // Makes a request of the execution environment by raising an environment call exception.
+                                return match self.mode {
+                                    User => Err(Exception::EnvironmentCallFromUMode(self.pc)),
+                                    Supervisor => Err(Exception::EnvironmentCallFromSMode(self.pc)),
+                                    Machine => Err(Exception::EnvironmentCallFromMMode(self.pc)),
+                                    _ => unreachable!(),
+                                };
+                            }
+                            (0x1, 0x0) => {
+                                // ebreak
+                                // Makes a request of the debugger bu raising a Breakpoint exception.
+                                return Err(Exception::Breakpoint(self.pc));
+                            }
+                            (0x2, 0x8) => {
+                                // sret
+                                // When the SRET instruction is executed to return from the trap
+                                // handler, the privilege level is set to user mode if the SPP
+                                // bit is 0, or supervisor mode if the SPP bit is 1. The SPP bit
+                                // is SSTATUS[8].
+                                let mut sstatus = self.csr.load(SSTATUS);
+                                self.mode = (sstatus & MASK_SPP) >> 8;
+                                // The SPIE bit is SSTATUS[5] and the SIE bit is the SSTATUS[1]
+                                let spie = (sstatus & MASK_SPIE) >> 5;
+                                // set SIE = SPIE
+                                sstatus = (sstatus & !MASK_SIE) | (spie << 1);
+                                // set SPIE = 1
+                                sstatus |= MASK_SPIE;
+                                // set SPP the least privilege mode (u-mode)
+                                sstatus &= !MASK_SPP;
+                                self.csr.store(SSTATUS, sstatus);
+                                // set the pc to CSRs[sepc].
+                                // whenever IALIGN=32, bit sepc[1] is masked on reads so that it appears to be 0. This
+                                // masking occurs also for the implicit read by the SRET instruction.
+                                let new_pc = self.csr.load(SEPC) & !0b11;
+                                return Ok(new_pc);
+                            }
+                            (0x2, 0x18) => {
+                                // mret
+                                let mut mstatus = self.csr.load(MSTATUS);
+                                // MPP is two bits wide at MSTATUS[12:11]
+                                self.mode = (mstatus & MASK_MPP) >> 11;
+                                // The MPIE bit is MSTATUS[7] and the MIE bit is the MSTATUS[3].
+                                let mpie = (mstatus & MASK_MPIE) >> 7;
+                                // set MIE = MPIE
+                                mstatus = (mstatus & !MASK_MIE) | (mpie << 3);
+                                // set MPIE = 1
+                                mstatus |= MASK_MPIE;
+                                // set MPP the least privilege mode (u-mode)
+                                mstatus &= !MASK_MPP;
+                                // If MPP != M, sets MPRV=0
+                                mstatus &= !MASK_MPRV;
+                                self.csr.store(MSTATUS, mstatus);
+                                // set the pc to CSRs[mepc].
+                                let new_pc = self.csr.load(MEPC) & !0b11;
+                                return Ok(new_pc);
+                            }
+                            (_, 0x9) => {
+                                // sfence.vma
+                                // Do nothing.
+                            }
+                            _ => err_illegal_instruction!(inst),
                         }
-                        (0x2, 0x18) => {
-                            // mret
-                            let mut mstatus = self.csr.load(MSTATUS);
-                            self.mode = (mstatus & MASK_MPP) >> 11;
-                            let mpie = (mstatus & MASK_MPIE) >> 7;
-                            //mie = mpie
-                            mstatus = (mstatus & !MASK_MIE) | (mpie << 3);
-                            // mpie = 1
-                            mstatus = mstatus | MASK_MPIE;
-                            // MPP = 0b00, => U
-                            mstatus &= !MASK_MPP;
-                            // If MPP != M, sets MPRV=0
-                            mstatus &= !MASK_MPRV;
-                            self.csr.store(SSTATUS, mstatus);
-                            let new_pc = self.csr.load(MEPC) & !0b11;
-                            return Ok(new_pc);
-                        }
-                        _ => err_illegal_instruction!(inst),
-                    },
+                    }
                     0x1 => {
                         // csrrw
                         let t = self.csr.load(csr_addr);
@@ -696,6 +711,7 @@ impl Cpu {
                         let t = self.csr.load(csr_addr);
                         self.csr.store(csr_addr, t | self.regs[rs1]);
                         self.regs[rd] = t;
+
                         self.update_paging(csr_addr);
                     }
                     0x3 => {
@@ -703,37 +719,45 @@ impl Cpu {
                         let t = self.csr.load(csr_addr);
                         self.csr.store(csr_addr, t & (!self.regs[rs1]));
                         self.regs[rd] = t;
+
                         self.update_paging(csr_addr);
                     }
                     0x5 => {
                         // csrrwi
+                        let zimm = rs1 as u64;
                         self.regs[rd] = self.csr.load(csr_addr);
                         self.csr.store(csr_addr, zimm);
+
                         self.update_paging(csr_addr);
                     }
                     0x6 => {
                         // csrrsi
+                        let zimm = rs1 as u64;
                         let t = self.csr.load(csr_addr);
                         self.csr.store(csr_addr, t | zimm);
                         self.regs[rd] = t;
+
                         self.update_paging(csr_addr);
                     }
                     0x7 => {
                         // csrrci
+                        let zimm = rs1 as u64;
                         let t = self.csr.load(csr_addr);
                         self.csr.store(csr_addr, t & (!zimm));
                         self.regs[rd] = t;
+
                         self.update_paging(csr_addr);
                     }
                     _ => err_illegal_instruction!(inst),
                 }
             }
+
             _ => err_illegal_instruction!(inst),
         }
         Ok(self.pc.wrapping_add(4))
     }
 
-    pub fn handle_exeption(&mut self, e: Exception) {
+    pub fn handle_exception(&mut self, e: Exception) {
         let pc = self.pc;
         let mode = self.mode;
         let cause = e.code();
@@ -790,9 +814,12 @@ impl Cpu {
 
         // trap base address
         let tvec = self.csr.load(TVEC);
-        self.pc = match tvec & 0b11 {
-            0 => tvec & 0b11,
-            1 => (tvec & !0b11) + cause << 2,
+        let tvec_mode = tvec & 0b11;
+        let tvec_base = tvec & !0b11;
+        match tvec_mode {
+            // DIrect
+            0 => self.pc = tvec_base,
+            1 => self.pc = tvec_base + cause << 2,
             _ => unreachable!(),
         };
 
@@ -833,12 +860,17 @@ impl Cpu {
 
         let pending = self.csr.load(MIE) & self.csr.load(MIP);
 
-        for i in [
-            MASK_MEIP, MASK_MSIP, MASK_MTIP, MASK_SEIP, MASK_SSIP, MASK_STIP,
+        for (m, i) in [
+            (MASK_MEIP, MachineExternalInterrupt),
+            (MASK_MSIP, MachineSoftwareInterrupt),
+            (MASK_MTIP, MachineTimerInterrupt),
+            (MASK_SEIP, SupervisorExternalInterrupt),
+            (MASK_SSIP, SupervisorSoftwareInterrupt),
+            (MASK_STIP, SupervisorTimerInterrupt),
         ] {
-            if (pending & i) != 0 {
-                self.csr.store(MIP, self.csr.load(MIP) & !i);
-                return Some(MachineExternalInterrupt);
+            if (pending & m) != 0 {
+                self.csr.store(MIP, self.csr.load(MIP) & !m);
+                return Some(i);
             }
         }
 
@@ -873,7 +905,7 @@ impl Cpu {
         let mut i: i64 = levels - 1;
         let mut pte;
         loop {
-            pte = self.bus.load(a + vpn[i as usize] << 3, 64)?;
+            pte = self.bus.load(a + vpn[i as usize] * 8, 64)?;
 
             let v = pte & 1;
             let r = (pte >> 1) & 1;
@@ -944,7 +976,7 @@ impl Cpu {
         let used_addr = desc_addr + PAGE_SIZE;
         // casting addresses
         let virtq_avail = unsafe { &(*(avail_addr as *const VirtqAvail)) };
-        let virtq_used = unsafe { &(*(used_addr as *const VirtqAvail)) };
+        let virtq_used = unsafe { &(*(used_addr as *const VirtqUsed)) };
 
         // indexing idx to available ring
         let idx = self
@@ -960,11 +992,8 @@ impl Cpu {
         // which contains the request information and a pointer to the data descriptor.
         let desc_addr0 = desc_addr + DESC_SIZE * index;
         let virtq_desc0 = unsafe { &(*(desc_addr0 as *const VirtqDesc)) };
-        let next0 = self
-            .bus
-            .load(&virtq_desc0.next as *const _ as u64, 16)
-            .unwrap();
-
+        // The addr field points to a virtio block request. We need the sector number stored
+        // in the sector field. The iotype tells us whether to read or write.
         let req_addr = self
             .bus
             .load(&virtq_desc0.addr as *const _ as u64, 64)
@@ -978,6 +1007,11 @@ impl Cpu {
             .bus
             .load(&virtq_blk_req.iotype as *const _ as u64, 32)
             .unwrap() as u32;
+        // The next field points to the second descriptor. (data descriptor)
+        let next0 = self
+            .bus
+            .load(&virtq_desc0.next as *const _ as u64, 16)
+            .unwrap();
 
         // the second descriptor.
         let desc_addr1 = desc_addr + DESC_SIZE * next0;
@@ -1112,14 +1146,14 @@ fn get_i_imm(inst: u64) -> u64 {
 }
 
 fn get_j_imm(inst: u64) -> u64 {
-    return ((inst & 0x8000_0000) as i32 as i64 >> 11) as u64
+    return ((inst & 0x80000000) as i32 as i64 >> 11) as u64
         | (inst & 0xff000)
         | ((inst >> 9) & 0x800)
         | (inst >> 20) & 0x7fe;
 }
 
 fn get_b_imm(inst: u64) -> u64 {
-    return (((inst & 0x8000_0000) as i32 as i64 >> 19) as u64)
+    return (((inst & 0x80000000) as i32 as i64 >> 19) as u64)
         | ((inst & 0x80) << 4)
         | ((inst >> 20) & 0x7e0)
         | ((inst >> 7) & 0x1e);
